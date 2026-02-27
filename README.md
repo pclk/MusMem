@@ -27,11 +27,16 @@ Set these environment variables for local development and deployment:
 
 - `DATABASE_URL`
 - `DIRECT_URL`
-- `SESSION_SECRET` (**required in production**; use a strong random value with at least 32 characters)
+- `SESSION_SECRET` (**required**; use a strong random value with at least 32 characters)
 
 ### Vercel
 
-In your Vercel project settings, add `SESSION_SECRET` in **Environment Variables** for all production environments before deploying.
+In your Vercel project settings, add `SESSION_SECRET` in **Environment Variables** for Production (and Preview if used) before deploying.
+
+1. Open your Vercel project → **Settings** → **Environment Variables**.
+2. Add key `SESSION_SECRET`.
+3. Paste a generated value (32+ characters).
+4. Save and redeploy.
 
 Example command to generate a secure value:
 
