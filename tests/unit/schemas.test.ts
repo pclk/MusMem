@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { registerSchema, loginSchema } from "@/lib/schemas/auth";
 import { pageCompleteSchema } from "@/lib/schemas/page";
+import { practiceModeSchema } from "@/lib/schemas/mode";
 import { updateSettingsSchema } from "@/lib/schemas/settings";
 import { createWordListSchema } from "@/lib/schemas/wordlist";
 
@@ -56,9 +57,22 @@ describe("loginSchema", () => {
   });
 });
 
+
+describe("practiceModeSchema", () => {
+  it("accepts TEXT and KEYMAP", () => {
+    expect(practiceModeSchema.safeParse("TEXT").success).toBe(true);
+    expect(practiceModeSchema.safeParse("KEYMAP").success).toBe(true);
+  });
+
+  it("rejects invalid mode", () => {
+    expect(practiceModeSchema.safeParse("OTHER").success).toBe(false);
+  });
+});
+
 describe("pageCompleteSchema", () => {
   it("accepts valid page completion data", () => {
     const result = pageCompleteSchema.safeParse({
+      mode: "TEXT",
       targetText: "hello world",
       typedText: "hello world",
       keystrokeTimings: [
@@ -71,11 +85,28 @@ describe("pageCompleteSchema", () => {
 
   it("rejects empty target text", () => {
     const result = pageCompleteSchema.safeParse({
+      mode: "TEXT",
       targetText: "",
       typedText: "hello",
       keystrokeTimings: [],
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts keymap completion payload", () => {
+    const result = pageCompleteSchema.safeParse({
+      mode: "KEYMAP",
+      exerciseId: "vim-ciw",
+      prompt: "change inside word",
+      typedCommand: "ciw",
+      acceptedInputs: ["ciw"],
+      correct: true,
+      latencyMs: 100,
+      keystrokeTimings: [
+        { char: "c", timestamp: 1000, correct: true },
+      ],
+    });
+    expect(result.success).toBe(true);
   });
 });
 
@@ -83,6 +114,7 @@ describe("updateSettingsSchema", () => {
   it("accepts valid settings update", () => {
     const result = updateSettingsSchema.safeParse({
       charsPerPage: 200,
+      mode: "KEYMAP",
     });
     expect(result.success).toBe(true);
   });

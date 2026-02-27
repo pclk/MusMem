@@ -5,6 +5,7 @@ import Link from "next/link";
 import Card from "@/components/ui/Card";
 import WpmChart from "./components/WpmChart";
 import BigramTable from "./components/BigramTable";
+import KeymapStatsTable from "./components/KeymapStatsTable";
 
 export default async function StatsPage() {
   const session = await getSession();
@@ -12,7 +13,7 @@ export default async function StatsPage() {
     redirect("/login");
   }
 
-  const [sessions, worstBigrams, totals] = await Promise.all([
+  const [sessions, worstBigrams, keymapStats, totals] = await Promise.all([
     prisma.typingSession.findMany({
       where: { userId: session.userId },
       orderBy: { startedAt: "desc" },
@@ -40,6 +41,18 @@ export default async function StatsPage() {
         totalErrors: true,
       },
     }),
+    prisma.keymapCommandStat.findMany({
+      where: { userId: session.userId },
+      orderBy: { lastSeen: "desc" },
+      take: 20,
+      select: {
+        exerciseId: true,
+        prompt: true,
+        attempts: true,
+        errors: true,
+        avgLatencyMs: true,
+      },
+    }),
     prisma.typingSession.aggregate({
       where: { userId: session.userId },
       _sum: { charsTyped: true, pagesCompleted: true },
@@ -52,6 +65,11 @@ export default async function StatsPage() {
       ? sessionsWithAccuracy.reduce((sum, s) => sum + (s.accuracy ?? 0), 0) /
         sessionsWithAccuracy.length
       : null;
+
+  const keymapRows = keymapStats.map((row) => ({
+    ...row,
+    accuracy: row.attempts > 0 ? (row.attempts - row.errors) / row.attempts : 0,
+  }));
 
   const serializedSessions = sessions.map((s) => ({
     ...s,
@@ -133,6 +151,11 @@ export default async function StatsPage() {
             Top 10 Weakest Bigrams
           </h3>
           <BigramTable bigrams={worstBigrams} />
+        </Card>
+
+        <Card>
+          <h3 className="text-lg font-semibold mb-4">Keymap Progress</h3>
+          <KeymapStatsTable rows={keymapRows} />
         </Card>
       </main>
     </div>
