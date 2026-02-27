@@ -5,16 +5,21 @@ import Button from "@/components/ui/Button";
 
 interface SettingsFormProps {
   initialCharsPerPage: number;
+  initialTargetedPracticeRatio: number;
   activeListId: string | null;
   wordLists: { id: string; name: string }[];
 }
 
 export default function SettingsForm({
   initialCharsPerPage,
+  initialTargetedPracticeRatio,
   activeListId,
   wordLists,
 }: SettingsFormProps) {
   const [charsPerPage, setCharsPerPage] = useState(initialCharsPerPage);
+  const [targetedPracticeRatio, setTargetedPracticeRatio] = useState(
+    initialTargetedPracticeRatio
+  );
   const [selectedList, setSelectedList] = useState<string>(
     activeListId ?? ""
   );
@@ -31,6 +36,7 @@ export default function SettingsForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           charsPerPage,
+          targetedPracticeRatio,
           activeListId: selectedList || null,
         }),
       });
@@ -66,6 +72,25 @@ export default function SettingsForm({
         <div className="flex justify-between text-xs text-zinc-500 mt-1">
           <span>50</span>
           <span>500</span>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
+          Targeted practice intensity: {targetedPracticeRatio}%
+        </label>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={5}
+          value={targetedPracticeRatio}
+          onChange={(e) => setTargetedPracticeRatio(Number(e.target.value))}
+          className="w-full accent-emerald-500"
+        />
+        <div className="flex justify-between text-xs text-zinc-500 mt-1">
+          <span>0% (all variety)</span>
+          <span>100% (all targeted)</span>
         </div>
       </div>
 

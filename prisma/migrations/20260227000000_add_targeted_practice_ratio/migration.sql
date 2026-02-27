@@ -1,0 +1,2 @@
+ALTER TABLE "UserSettings"
+ADD COLUMN "targetedPracticeRatio" INTEGER NOT NULL DEFAULT 60;

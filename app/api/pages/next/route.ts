@@ -19,6 +19,7 @@ export async function GET() {
     });
 
     const charsPerPage = settings?.charsPerPage ?? 200;
+    const targetedPracticeRatio = settings?.targetedPracticeRatio ?? 60;
 
     // Get word list
     let words: string[];
@@ -50,7 +51,12 @@ export async function GET() {
       };
     });
 
-    const pageText = generatePage({ words, weakBigrams, charsPerPage });
+    const pageText = generatePage({
+      words,
+      weakBigrams,
+      charsPerPage,
+      targetedPracticeRatio,
+    });
 
     return NextResponse.json({ text: pageText });
   } catch (error) {

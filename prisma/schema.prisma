@@ -28,6 +28,7 @@ model UserSettings {
   userId       String    @unique
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   charsPerPage Int       @default(200)
+  targetedPracticeRatio Int @default(60)
   activeListId String?
   activeList   WordList?  @relation(fields: [activeListId], references: [id], onDelete: SetNull)
 }

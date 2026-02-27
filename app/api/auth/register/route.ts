@@ -38,7 +38,7 @@ export async function POST(request: Request) {
         username,
         passwordHash,
         settings: {
-          create: { charsPerPage: 200 },
+          create: { charsPerPage: 200, targetedPracticeRatio: 60 },
         },
       },
     });
