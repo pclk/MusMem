@@ -7,7 +7,21 @@ export interface SessionData {
 }
 
 const sessionOptions = {
-  password: process.env.SESSION_SECRET || "complex_password_at_least_32_characters_long_for_iron_session",
+  password: (() => {
+    const sessionSecret = process.env.SESSION_SECRET;
+
+    if (sessionSecret) {
+      return sessionSecret;
+    }
+
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "SESSION_SECRET is required in production. Set SESSION_SECRET to a strong random string with at least 32 characters."
+      );
+    }
+
+    return "dev_only_session_secret_change_me_for_local_development";
+  })(),
   cookieName: "musmem_session",
   cookieOptions: {
     secure: process.env.NODE_ENV === "production",
