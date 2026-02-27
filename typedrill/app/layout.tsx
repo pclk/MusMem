@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TypeDrill — Adaptive Typing Trainer",
+  title: "MusMem — Adaptive Typing Trainer",
   description: "Track your typing weaknesses and practice adaptively",
 };
 

@@ -12,7 +12,7 @@ export default async function HomePage() {
     <div className="flex min-h-screen flex-col items-center justify-center px-4">
       <div className="text-center space-y-6">
         <h1 className="text-5xl font-bold tracking-tight">
-          Type<span className="text-emerald-400">Drill</span>
+          Mus<span className="text-emerald-400">Mem</span>
         </h1>
         <p className="text-lg text-zinc-400 max-w-md mx-auto">
           An adaptive typing trainer that targets your weakest character

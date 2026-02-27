@@ -11,7 +11,7 @@ test.describe("Authentication", () => {
     page,
   }) => {
     await page.goto("/");
-    await expect(page.getByText("TypeDrill")).toBeVisible();
+    await expect(page.getByText("MusMem")).toBeVisible();
     await expect(page.getByRole("link", { name: "Log in" })).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Get started" })

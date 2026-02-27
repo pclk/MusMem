@@ -45,7 +45,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold">Welcome back</h1>
-          <p className="text-sm text-zinc-400 mt-1">Log in to TypeDrill</p>
+          <p className="text-sm text-zinc-400 mt-1">Log in to MusMem</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

@@ -41,7 +41,7 @@ export default async function SettingsPage() {
     <div className="min-h-screen flex flex-col">
       <nav className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
         <h1 className="text-lg font-bold">
-          Type<span className="text-emerald-400">Drill</span>
+          Mus<span className="text-emerald-400">Mem</span>
         </h1>
         <div className="flex gap-4 text-sm text-zinc-400">
           <Link href="/type" className="hover:text-zinc-200 transition-colors">

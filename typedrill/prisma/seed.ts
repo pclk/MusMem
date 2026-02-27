@@ -11,7 +11,7 @@ async function main() {
     where: { username: "demo" },
     update: {},
     create: {
-      email: "demo@typedrill.local",
+      email: "demo@musmem.local",
       username: "demo",
       passwordHash,
       settings: {
