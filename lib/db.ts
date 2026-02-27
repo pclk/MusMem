@@ -8,8 +8,16 @@ import ws from "ws";
 const neonConfig = require("@neondatabase/serverless").neonConfig;
 neonConfig.webSocketConstructor = ws;
 
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+  throw new Error(
+    "Missing required environment variable: DATABASE_URL. Set it in your local .env file and in Vercel project settings (Production, Preview, and Development)."
+  );
+}
+
 const prismaClientSingleton = () => {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const pool = new Pool({ connectionString: databaseUrl });
   const adapter = new PrismaNeon(pool);
   return new PrismaClient({ adapter });
 };
