@@ -7,25 +7,14 @@ import { createWordListSchema } from "@/lib/schemas/wordlist";
 describe("registerSchema", () => {
   it("accepts valid registration data", () => {
     const result = registerSchema.safeParse({
-      email: "test@example.com",
       username: "testuser",
       password: "password123",
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects invalid email", () => {
-    const result = registerSchema.safeParse({
-      email: "not-an-email",
-      username: "testuser",
-      password: "password123",
-    });
-    expect(result.success).toBe(false);
-  });
-
   it("rejects short username", () => {
     const result = registerSchema.safeParse({
-      email: "test@example.com",
       username: "ab",
       password: "password123",
     });
@@ -34,7 +23,6 @@ describe("registerSchema", () => {
 
   it("rejects short password", () => {
     const result = registerSchema.safeParse({
-      email: "test@example.com",
       username: "testuser",
       password: "short",
     });
@@ -43,7 +31,6 @@ describe("registerSchema", () => {
 
   it("rejects username with special characters", () => {
     const result = registerSchema.safeParse({
-      email: "test@example.com",
       username: "test user!",
       password: "password123",
     });
