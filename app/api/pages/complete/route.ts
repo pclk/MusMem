@@ -5,6 +5,7 @@ import { pageCompleteSchema } from "@/lib/schemas/page";
 import { extractBigramResults, aggregateBigramResults } from "@/lib/algorithm/bigram";
 import { calculateWpm, calculateAccuracy } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const session = await getSession();

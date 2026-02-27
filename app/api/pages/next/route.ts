@@ -5,6 +5,7 @@ import { generatePage } from "@/lib/algorithm/page-generator";
 import { WeakBigram } from "@/lib/algorithm/scoring";
 import englishWords from "@/lib/words/english-5k.json";
 
+export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await getSession();

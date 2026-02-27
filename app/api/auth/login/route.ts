@@ -4,6 +4,7 @@ import prisma from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { loginSchema } from "@/lib/schemas/auth";
 
+export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const body = await request.json();

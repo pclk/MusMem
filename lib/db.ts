@@ -4,20 +4,24 @@ import { Pool } from "@neondatabase/serverless";
 import ws from "ws";
 
 // Required for Neon serverless WebSocket connections in Node.js
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const neonConfig = require("@neondatabase/serverless").neonConfig;
 neonConfig.webSocketConstructor = ws;
 
-const databaseUrl = process.env.DATABASE_URL;
+const fallbackDatabaseUrl =
+  "postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable";
 
-if (!databaseUrl) {
-  throw new Error(
-    "Missing required environment variable: DATABASE_URL. Set it in your local .env file and in Vercel project settings (Production, Preview, and Development)."
-  );
+function getDatabaseUrl(): string {
+  const databaseUrl = process.env.DATABASE_URL;
+
+  if (databaseUrl) {
+    return databaseUrl;
+  }
+
+  return fallbackDatabaseUrl;
 }
 
 const prismaClientSingleton = () => {
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: getDatabaseUrl() });
   const adapter = new PrismaNeon(pool);
   return new PrismaClient({ adapter });
 };
