@@ -12,4 +12,5 @@ body {
   color: var(--foreground);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
+  font-size: 18px;
 }
