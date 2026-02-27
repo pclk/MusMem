@@ -3,6 +3,7 @@ import prisma from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { createWordListSchema } from "@/lib/schemas/wordlist";
 
+export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await getSession();

@@ -3,6 +3,7 @@ import prisma from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { updateSettingsSchema } from "@/lib/schemas/settings";
 
+export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await getSession();
