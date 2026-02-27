@@ -114,6 +114,7 @@ export default function TypingEngine() {
   });
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isPageTransitioning, setIsPageTransitioning] = useState(false);
   const [lastActivity, setLastActivity] = useState(Date.now());
   const [sessionStats, setSessionStats] = useState<{
     accuracy: number;
@@ -148,6 +149,7 @@ export default function TypingEngine() {
   const submitPage = useCallback(async () => {
     const targetText = state.words.join(" ");
     const typedText = state.typed.join(" ");
+    setIsPageTransitioning(true);
 
     try {
       const res = await fetch("/api/pages/complete", {
@@ -172,7 +174,8 @@ export default function TypingEngine() {
       console.error("Failed to submit page:", error);
     }
 
-    fetchNextPage();
+    await fetchNextPage();
+    setIsPageTransitioning(false);
   }, [state.words, state.typed, state.keystrokes, fetchNextPage]);
 
   useEffect(() => {
@@ -187,7 +190,7 @@ export default function TypingEngine() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isLoading || isPageComplete) return;
+      if (isLoading || isPageComplete || isPageTransitioning) return;
 
       // Ignore modifier keys (except Shift)
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -223,7 +226,7 @@ export default function TypingEngine() {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isLoading, isPageComplete, state.currentWordIdx, state.words.length, state.typed]);
+  }, [isLoading, isPageComplete, isPageTransitioning, state.currentWordIdx, state.words.length, state.typed]);
 
   // Focus container on mount
   useEffect(() => {
@@ -262,7 +265,9 @@ export default function TypingEngine() {
       >
         {isLoading ? (
           <div className="flex items-center justify-center h-40">
-            <div className="text-zinc-500 animate-pulse">Loading...</div>
+            <div className="text-zinc-400 animate-pulse text-xl text-center">
+              {isPageTransitioning ? "Page complete! Loading next page..." : "Loading..."}
+            </div>
           </div>
         ) : (
           <WordDisplay
@@ -275,7 +280,7 @@ export default function TypingEngine() {
       </div>
 
       {/* Instructions */}
-      <p className="mt-4 text-center text-sm text-zinc-600">
+      <p className="mt-4 text-center text-base text-zinc-600">
         {isActive ? "" : "Start typing to begin • Space to advance • Backspace to correct"}
       </p>
     </div>
