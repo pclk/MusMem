@@ -15,7 +15,7 @@ async function main() {
       username: "demo",
       passwordHash,
       settings: {
-        create: { charsPerPage: 200 },
+        create: { charsPerPage: 200, targetedPracticeRatio: 60 },
       },
     },
   });

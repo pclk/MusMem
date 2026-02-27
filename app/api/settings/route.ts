@@ -44,7 +44,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    const { charsPerPage, activeListId } = parsed.data;
+    const { charsPerPage, targetedPracticeRatio, activeListId } = parsed.data;
 
     // Validate activeListId belongs to user if provided
     if (activeListId) {
@@ -60,6 +60,7 @@ export async function PUT(request: Request) {
       where: { userId: session.userId },
       data: {
         ...(charsPerPage !== undefined && { charsPerPage }),
+        ...(targetedPracticeRatio !== undefined && { targetedPracticeRatio }),
         ...(activeListId !== undefined && { activeListId }),
       },
     });

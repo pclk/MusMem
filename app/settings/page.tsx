@@ -66,6 +66,7 @@ export default async function SettingsPage() {
           <SettingsForm
             initialCharsPerPage={settings?.charsPerPage ?? 200}
             activeListId={settings?.activeListId ?? null}
+            initialTargetedPracticeRatio={settings?.targetedPracticeRatio ?? 60}
             wordLists={wordListsForForm}
           />
         </Card>

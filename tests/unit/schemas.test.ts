@@ -107,6 +107,34 @@ describe("updateSettingsSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts targetedPracticeRatio at lower boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      targetedPracticeRatio: 0,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts targetedPracticeRatio at upper boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      targetedPracticeRatio: 100,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects targetedPracticeRatio below lower boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      targetedPracticeRatio: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects targetedPracticeRatio above upper boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      targetedPracticeRatio: 101,
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("createWordListSchema", () => {

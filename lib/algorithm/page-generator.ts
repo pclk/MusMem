@@ -4,17 +4,18 @@ interface GeneratePageOptions {
   words: string[];
   weakBigrams: WeakBigram[];
   charsPerPage: number;
+  targetedPracticeRatio?: number;
 }
 
 /**
  * Generate an adaptive practice page.
  *
- * - 60% of characters come from words with highest weakness scores (targeted practice)
- * - 40% of characters come from random words (variety)
+ * - Configurable percentage of characters can come from words with highest weakness scores (targeted practice)
+ * - Remaining characters come from random words (variety)
  * - Cold start (no weak bigrams): 100% random words
  */
 export function generatePage(options: GeneratePageOptions): string {
-  const { words, weakBigrams, charsPerPage } = options;
+  const { words, weakBigrams, charsPerPage, targetedPracticeRatio = 60 } = options;
 
   if (words.length === 0) return "";
 
@@ -24,7 +25,7 @@ export function generatePage(options: GeneratePageOptions): string {
   }
 
   const scored = scoreAndSortWords(words, weakBigrams);
-  const targetedChars = Math.floor(charsPerPage * 0.6);
+  const targetedChars = Math.floor(charsPerPage * (targetedPracticeRatio / 100));
   const varietyChars = charsPerPage - targetedChars;
 
   // Select targeted words (highest scores first)
@@ -50,7 +51,7 @@ function selectFromScored(
   const selected: string[] = [];
   let currentChars = 0;
 
-  if (scored.length === 0) return selected;
+  if (scored.length === 0 || targetChars <= 0) return selected;
 
   // Weighted random selection favoring higher scores
   while (currentChars < targetChars) {
@@ -76,6 +77,8 @@ function selectFromScored(
 function selectRandomWords(words: string[], targetChars: number): string[] {
   const selected: string[] = [];
   let currentChars = 0;
+
+  if (targetChars <= 0) return selected;
 
   while (currentChars < targetChars) {
     const word = words[Math.floor(Math.random() * words.length)];
