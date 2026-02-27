@@ -20,7 +20,13 @@ model User {
   settings    UserSettings?
   sessions    TypingSession[]
   bigramStats BigramStat[]
+  keymapCommandStats KeymapCommandStat[]
   wordLists   WordList[]
+}
+
+enum PracticeMode {
+  TEXT
+  KEYMAP
 }
 
 model UserSettings {
@@ -29,8 +35,25 @@ model UserSettings {
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   charsPerPage Int       @default(200)
   targetedPracticeRatio Int @default(60)
+  mode         PracticeMode @default(TEXT)
   activeListId String?
   activeList   WordList?  @relation(fields: [activeListId], references: [id], onDelete: SetNull)
+}
+
+model KeymapCommandStat {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId         String
+  prompt             String
+  attempts           Int      @default(0)
+  errors             Int      @default(0)
+  totalLatencyMs     Int      @default(0)
+  avgLatencyMs       Float?
+  lastSeen           DateTime @default(now())
+
+  @@unique([userId, exerciseId])
+  @@index([userId, errors(sort: Desc)])
 }
 
 model BigramStat {

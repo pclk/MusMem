@@ -39,6 +39,20 @@ export async function GET() {
       },
     });
 
+
+    const keymapStats = await prisma.keymapCommandStat.findMany({
+      where: { userId: session.userId },
+      orderBy: { lastSeen: "desc" },
+      take: 20,
+      select: {
+        exerciseId: true,
+        prompt: true,
+        attempts: true,
+        errors: true,
+        avgLatencyMs: true,
+      },
+    });
+
     const totals = await prisma.typingSession.aggregate({
       where: { userId: session.userId },
       _sum: { charsTyped: true, pagesCompleted: true },
@@ -54,6 +68,10 @@ export async function GET() {
       totalCharsTyped: totals._sum.charsTyped ?? 0,
       totalPagesCompleted: totals._sum.pagesCompleted ?? 0,
       overallAccuracy,
+      keymapStats: keymapStats.map((row) => ({
+        ...row,
+        accuracy: row.attempts > 0 ? (row.attempts - row.errors) / row.attempts : 0,
+      })),
     });
   } catch (error) {
     console.error("Stats error:", error);

@@ -6,6 +6,7 @@ import Button from "@/components/ui/Button";
 interface SettingsFormProps {
   initialCharsPerPage: number;
   initialTargetedPracticeRatio: number;
+  initialMode: "TEXT" | "KEYMAP";
   activeListId: string | null;
   wordLists: { id: string; name: string }[];
 }
@@ -13,6 +14,7 @@ interface SettingsFormProps {
 export default function SettingsForm({
   initialCharsPerPage,
   initialTargetedPracticeRatio,
+  initialMode,
   activeListId,
   wordLists,
 }: SettingsFormProps) {
@@ -20,6 +22,7 @@ export default function SettingsForm({
   const [targetedPracticeRatio, setTargetedPracticeRatio] = useState(
     initialTargetedPracticeRatio
   );
+  const [mode, setMode] = useState<"TEXT" | "KEYMAP">(initialMode);
   const [selectedList, setSelectedList] = useState<string>(
     activeListId ?? ""
   );
@@ -37,6 +40,7 @@ export default function SettingsForm({
         body: JSON.stringify({
           charsPerPage,
           targetedPracticeRatio,
+          mode,
           activeListId: selectedList || null,
         }),
       });
@@ -92,6 +96,20 @@ export default function SettingsForm({
           <span>0% (all variety)</span>
           <span>100% (all targeted)</span>
         </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
+          Practice mode
+        </label>
+        <select
+          value={mode}
+          onChange={(e) => setMode(e.target.value as "TEXT" | "KEYMAP")}
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        >
+          <option value="TEXT">Text typing</option>
+          <option value="KEYMAP">Keymap drills</option>
+        </select>
       </div>
 
       <div>
