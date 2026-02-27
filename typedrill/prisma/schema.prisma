@@ -1,0 +1,73 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  settings    UserSettings?
+  sessions    TypingSession[]
+  bigramStats BigramStat[]
+  wordLists   WordList[]
+}
+
+model UserSettings {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  charsPerPage Int       @default(200)
+  activeListId String?
+  activeList   WordList?  @relation(fields: [activeListId], references: [id], onDelete: SetNull)
+}
+
+model BigramStat {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bigram        String
+  totalAttempts Int      @default(0)
+  totalErrors   Int      @default(0)
+  errorRate     Float    @default(0)
+  lastSeen      DateTime @default(now())
+
+  @@unique([userId, bigram])
+  @@index([userId, errorRate(sort: Desc)])
+}
+
+model TypingSession {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
+  pagesCompleted Int       @default(0)
+  charsTyped     Int       @default(0)
+  accuracy       Float?
+  wpm            Float?
+}
+
+model WordList {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  words     String[]
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  activeFor UserSettings[]
+
+  @@unique([userId, name])
+}
