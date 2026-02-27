@@ -1,18 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 
 export default function RegisterPage() {
+  const authDraftKey = "auth-form-draft";
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const savedDraft = sessionStorage.getItem(authDraftKey);
+    if (!savedDraft) return;
+
+    try {
+      const draft = JSON.parse(savedDraft) as {
+        username?: string;
+        password?: string;
+      };
+
+      setUsername(draft.username ?? "");
+      setPassword(draft.password ?? "");
+    } catch {
+      sessionStorage.removeItem(authDraftKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    sessionStorage.setItem(authDraftKey, JSON.stringify({ username, password }));
+  }, [username, password]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,6 +65,7 @@ export default function RegisterPage() {
       }
 
       router.push("/type");
+      sessionStorage.removeItem(authDraftKey);
       router.refresh();
     } catch {
       setGeneralError("Something went wrong. Please try again.");
