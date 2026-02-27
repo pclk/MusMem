@@ -6,8 +6,16 @@ export interface SessionData {
   username?: string;
 }
 
+const sessionSecret = process.env.SESSION_SECRET;
+
+if (!sessionSecret) {
+  throw new Error(
+    "Missing required environment variable: SESSION_SECRET. Set it in your local .env file and in Vercel project settings (Production, Preview, and Development)."
+  );
+}
+
 const sessionOptions = {
-  password: process.env.SESSION_SECRET || "complex_password_at_least_32_characters_long_for_iron_session",
+  password: sessionSecret,
   cookieName: "musmem_session",
   cookieOptions: {
     secure: process.env.NODE_ENV === "production",

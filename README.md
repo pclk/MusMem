@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MusMem
+
+MusMem is a Next.js typing trainer backed by Prisma and Neon Postgres.
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies and run the development server:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment / Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Before the **first Vercel deploy**, you must configure required environment variables in your Vercel project settings for the appropriate environments (**Production**, **Preview**, and **Development**):
 
-## Learn More
+- `DATABASE_URL`
+- `DIRECT_URL`
+- `SESSION_SECRET`
 
-To learn more about Next.js, take a look at the following resources:
+### Required values
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `DATABASE_URL`: Neon pooled connection string used by Prisma at runtime.
+- `DIRECT_URL`: Neon direct (non-pooled) connection string used by Prisma for migrations/introspection.
+- `SESSION_SECRET`: Strong random secret (32+ characters) used to encrypt session cookies.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Vercel setup checklist
 
-## Deploy on Vercel
+1. Go to **Project → Settings → Environment Variables** in Vercel.
+2. Add `DATABASE_URL`, `DIRECT_URL`, and `SESSION_SECRET`.
+3. Assign each variable to the environments you use (Production / Preview / Development).
+4. Redeploy after adding or changing variables.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+A template is provided in `.env.example` for local setup.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Local environment
+
+Create a local `.env` file (not committed) from `.env.example` and fill in real values:
+
+```bash
+cp .env.example .env
+```
+
+## Prisma
+
+The Prisma datasource is configured for Neon with:
+
+- `url = env("DATABASE_URL")`
+- `directUrl = env("DIRECT_URL")`
+
+Run migrations with:
+
+```bash
+pnpm prisma migrate dev
+```
