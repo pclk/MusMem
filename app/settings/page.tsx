@@ -81,11 +81,6 @@ export default async function SettingsPage() {
             <button
               type="submit"
               className="text-sm text-red-400 hover:text-red-300 transition-colors"
-              onClick={async (e) => {
-                e.preventDefault();
-                await fetch("/api/auth/logout", { method: "POST" });
-                window.location.href = "/";
-              }}
             >
               Log out
             </button>
