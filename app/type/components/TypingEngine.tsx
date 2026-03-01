@@ -5,7 +5,11 @@ import Link from "next/link";
 import WordDisplay from "./WordDisplay";
 import KeymapDisplay from "./KeymapDisplay";
 import { PracticeMode } from "@/lib/schemas/mode";
-import { KeymapExercise } from "@/lib/keymaps/vim-basic";
+import { KeymapExercise, vimBasicExercises } from "@/lib/keymaps/vim-basic";
+import englishWords from "@/lib/words/english-5k.json";
+import { generatePage } from "@/lib/algorithm/page-generator";
+import { extractBigramResults, aggregateBigramResults } from "@/lib/algorithm/bigram";
+import { calculateAccuracy, calculateWpm } from "@/lib/utils";
 
 interface Keystroke {
   char: string;
@@ -31,6 +35,7 @@ interface TypingEngineProps {
   initialMode: "TEXT" | "KEYMAP";
   activeListId: string | null;
   wordLists: { id: string; name: string }[];
+  isGuest?: boolean;
 }
 
 type TypingAction =
@@ -91,12 +96,18 @@ function typingReducer(state: TypingState, action: TypingAction): TypingState {
   }
 }
 
+const GUEST_SETTINGS_KEY = "guest-settings";
+const GUEST_BIGRAMS_KEY = "guest-bigram-stats";
+const GUEST_KEYMAP_KEY = "guest-keymap-stats";
+const GUEST_SUMMARY_KEY = "guest-summary-stats";
+
 export default function TypingEngine({
   initialCharsPerPage,
   initialTargetedPracticeRatio,
   initialMode,
   activeListId,
   wordLists,
+  isGuest = false,
 }: TypingEngineProps) {
   const targetedPracticeTooltip =
     "Controls how much of each page focuses on your weak patterns. Higher values include more words that match your weak bigrams; lower values include more random variety. If no weaknesses are recorded yet, pages are fully random.";
@@ -137,6 +148,33 @@ export default function TypingEngine({
     [charsPerPage, targetedPracticeRatio, mode, selectedList, savedSettings]
   );
 
+  useEffect(() => {
+    if (!isGuest) return;
+    const rawSettings = localStorage.getItem(GUEST_SETTINGS_KEY);
+    if (!rawSettings) return;
+    try {
+      const parsed = JSON.parse(rawSettings) as {
+        charsPerPage?: number;
+        targetedPracticeRatio?: number;
+        mode?: "TEXT" | "KEYMAP";
+      };
+      const nextCharsPerPage = parsed.charsPerPage ?? initialCharsPerPage;
+      const nextTargetedRatio = parsed.targetedPracticeRatio ?? initialTargetedPracticeRatio;
+      const nextMode = parsed.mode ?? initialMode;
+      setCharsPerPage(nextCharsPerPage);
+      setTargetedPracticeRatio(nextTargetedRatio);
+      setMode(nextMode);
+      setSavedSettings((current) => ({
+        ...current,
+        charsPerPage: nextCharsPerPage,
+        targetedPracticeRatio: nextTargetedRatio,
+        mode: nextMode,
+      }));
+    } catch {
+      localStorage.removeItem(GUEST_SETTINGS_KEY);
+    }
+  }, [isGuest, initialCharsPerPage, initialTargetedPracticeRatio, initialMode]);
+
   const triggerTypingActivity = useCallback(() => {
     setIsSettingsVisible(false);
     if (inactivityTimeoutRef.current) {
@@ -151,14 +189,54 @@ export default function TypingEngine({
     setIsLoading(true);
     setFadeIn(false);
     try {
-      const res = await fetch("/api/pages/next");
-      if (!res.ok) throw new Error("Failed to fetch page");
-      const data = await res.json();
-      if (data.mode === "KEYMAP" && data.exercise) {
-        dispatch({ type: "SET_KEYMAP_PAGE", exercise: data.exercise });
+      if (isGuest) {
+        if (mode === "KEYMAP") {
+          const rawKeymapStats = localStorage.getItem(GUEST_KEYMAP_KEY);
+          const keymapStats = rawKeymapStats ? (JSON.parse(rawKeymapStats) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
+          const sorted = Object.entries(keymapStats).sort((a, b) => b[1].lastSeen - a[1].lastSeen);
+          const lastExerciseId = sorted[0]?.[0];
+          const pool = vimBasicExercises.length > 1
+            ? vimBasicExercises.filter((exercise) => exercise.id !== lastExerciseId)
+            : vimBasicExercises;
+          const exercise = pool[Math.floor(Math.random() * pool.length)];
+          dispatch({ type: "SET_KEYMAP_PAGE", exercise });
+        } else {
+          const rawBigramStats = localStorage.getItem(GUEST_BIGRAMS_KEY);
+          const bigramStats = rawBigramStats ? (JSON.parse(rawBigramStats) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
+          const now = Date.now();
+          const dayMs = 24 * 60 * 60 * 1000;
+          const weakBigrams = Object.entries(bigramStats)
+            .filter(([, stat]) => stat.attempts >= 5)
+            .map(([bigram, stat]) => {
+              const errorRate = stat.attempts > 0 ? stat.errors / stat.attempts : 0;
+              const hoursSinceLastSeen = (now - stat.lastSeen) / dayMs;
+              const decayBoost = hoursSinceLastSeen > 1 ? (0.2 * Math.min(hoursSinceLastSeen, 7)) / 7 : 0;
+              return {
+                bigram,
+                errorRate: Math.min(errorRate + decayBoost, 1),
+              };
+            })
+            .sort((a, b) => b.errorRate - a.errorRate)
+            .slice(0, 20);
+
+          const text = generatePage({
+            words: englishWords as string[],
+            weakBigrams,
+            charsPerPage,
+            targetedPracticeRatio,
+          });
+          dispatch({ type: "SET_TEXT_PAGE", words: text.split(" ").filter((w) => w.length > 0) });
+        }
       } else {
-        const words = data.text.split(" ").filter((w: string) => w.length > 0);
-        dispatch({ type: "SET_TEXT_PAGE", words });
+        const res = await fetch("/api/pages/next");
+        if (!res.ok) throw new Error("Failed to fetch page");
+        const data = await res.json();
+        if (data.mode === "KEYMAP" && data.exercise) {
+          dispatch({ type: "SET_KEYMAP_PAGE", exercise: data.exercise });
+        } else {
+          const words = data.text.split(" ").filter((w: string) => w.length > 0);
+          dispatch({ type: "SET_TEXT_PAGE", words });
+        }
       }
       setTimeout(() => setFadeIn(true), 50);
     } catch (error) {
@@ -166,12 +244,23 @@ export default function TypingEngine({
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isGuest, mode, charsPerPage, targetedPracticeRatio]);
 
   const handleSaveSettings = useCallback(async () => {
     setIsSavingSettings(true);
     setSettingsMessage("");
     try {
+      if (isGuest) {
+        localStorage.setItem(
+          GUEST_SETTINGS_KEY,
+          JSON.stringify({ charsPerPage, targetedPracticeRatio, mode })
+        );
+        setSavedSettings({ charsPerPage, targetedPracticeRatio, mode, selectedList: "" });
+        setSettingsMessage("Guest settings saved locally");
+        await fetchNextPage();
+        return;
+      }
+
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -196,28 +285,66 @@ export default function TypingEngine({
     } finally {
       setIsSavingSettings(false);
     }
-  }, [charsPerPage, targetedPracticeRatio, mode, selectedList, fetchNextPage]);
+  }, [charsPerPage, targetedPracticeRatio, mode, selectedList, fetchNextPage, isGuest]);
 
   const submitTextPage = useCallback(async () => {
     const targetText = state.words.join(" ");
     const typedText = state.typed.join(" ");
     setIsPageTransitioning(true);
     try {
-      const res = await fetch("/api/pages/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "TEXT", targetText, typedText, keystrokeTimings: state.keystrokes }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSessionStats({ accuracy: data.accuracy, wpm: data.wpm, pagesCompleted: data.pagesCompleted });
+      if (isGuest) {
+        const results = extractBigramResults(targetText, typedText);
+        const aggregated = aggregateBigramResults(results);
+        const rawStored = localStorage.getItem(GUEST_BIGRAMS_KEY);
+        const stored = rawStored ? (JSON.parse(rawStored) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
+        for (const [bigram, entry] of aggregated.entries()) {
+          const current = stored[bigram] ?? { attempts: 0, errors: 0, lastSeen: Date.now() };
+          stored[bigram] = {
+            attempts: current.attempts + entry.attempts,
+            errors: current.errors + entry.errors,
+            lastSeen: Date.now(),
+          };
+        }
+        localStorage.setItem(GUEST_BIGRAMS_KEY, JSON.stringify(stored));
+
+        const correctChars = state.keystrokes.filter((k) => k.correct).length;
+        const totalChars = state.keystrokes.length;
+        const accuracy = calculateAccuracy(correctChars, totalChars);
+
+        let wpm = 0;
+        if (state.keystrokes.length >= 2) {
+          const duration = state.keystrokes[state.keystrokes.length - 1].timestamp - state.keystrokes[0].timestamp;
+          wpm = calculateWpm(totalChars, duration);
+        }
+
+        const rawSummary = localStorage.getItem(GUEST_SUMMARY_KEY);
+        const summary = rawSummary
+          ? (JSON.parse(rawSummary) as { pagesCompleted: number; charsTyped: number })
+          : { pagesCompleted: 0, charsTyped: 0 };
+        const nextSummary = {
+          pagesCompleted: summary.pagesCompleted + 1,
+          charsTyped: summary.charsTyped + totalChars,
+        };
+        localStorage.setItem(GUEST_SUMMARY_KEY, JSON.stringify(nextSummary));
+
+        setSessionStats({ accuracy, wpm, pagesCompleted: nextSummary.pagesCompleted });
+      } else {
+        const res = await fetch("/api/pages/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "TEXT", targetText, typedText, keystrokeTimings: state.keystrokes }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSessionStats({ accuracy: data.accuracy, wpm: data.wpm, pagesCompleted: data.pagesCompleted });
+        }
       }
     } catch (error) {
       console.error("Failed to submit page:", error);
     }
     await fetchNextPage();
     setIsPageTransitioning(false);
-  }, [state.words, state.typed, state.keystrokes, fetchNextPage]);
+  }, [state.words, state.typed, state.keystrokes, fetchNextPage, isGuest]);
 
   const submitKeymap = useCallback(async () => {
     if (!state.exercise) return;
@@ -227,29 +354,58 @@ export default function TypingEngine({
     const latencyMs = state.commandStartedAt ? Math.max(0, endedAt - state.commandStartedAt) : 0;
     setLastSubmission({ correct, typedCommand });
     try {
-      const res = await fetch("/api/pages/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "KEYMAP",
-          exerciseId: state.exercise.id,
-          prompt: state.exercise.prompt,
-          acceptedInputs: state.exercise.acceptedInputs,
-          typedCommand,
-          correct,
-          latencyMs,
-          keystrokeTimings: state.keystrokes,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setSessionStats({ accuracy: data.accuracy, wpm: data.wpm, pagesCompleted: data.pagesCompleted });
+      if (isGuest) {
+        const rawStored = localStorage.getItem(GUEST_KEYMAP_KEY);
+        const stored = rawStored ? (JSON.parse(rawStored) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
+        const current = stored[state.exercise.id] ?? { attempts: 0, errors: 0, lastSeen: Date.now() };
+        stored[state.exercise.id] = {
+          attempts: current.attempts + 1,
+          errors: current.errors + (correct ? 0 : 1),
+          lastSeen: Date.now(),
+        };
+        localStorage.setItem(GUEST_KEYMAP_KEY, JSON.stringify(stored));
+
+        const correctChars = state.keystrokes.filter((k) => k.correct).length;
+        const totalChars = state.keystrokes.length;
+        const accuracy = calculateAccuracy(correctChars, totalChars);
+        const wpm = latencyMs > 0 ? calculateWpm(totalChars, latencyMs) : 0;
+
+        const rawSummary = localStorage.getItem(GUEST_SUMMARY_KEY);
+        const summary = rawSummary
+          ? (JSON.parse(rawSummary) as { pagesCompleted: number; charsTyped: number })
+          : { pagesCompleted: 0, charsTyped: 0 };
+        const nextSummary = {
+          pagesCompleted: summary.pagesCompleted + 1,
+          charsTyped: summary.charsTyped + totalChars,
+        };
+        localStorage.setItem(GUEST_SUMMARY_KEY, JSON.stringify(nextSummary));
+
+        setSessionStats({ accuracy, wpm, pagesCompleted: nextSummary.pagesCompleted });
+      } else {
+        const res = await fetch("/api/pages/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "KEYMAP",
+            exerciseId: state.exercise.id,
+            prompt: state.exercise.prompt,
+            acceptedInputs: state.exercise.acceptedInputs,
+            typedCommand,
+            correct,
+            latencyMs,
+            keystrokeTimings: state.keystrokes,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSessionStats({ accuracy: data.accuracy, wpm: data.wpm, pagesCompleted: data.pagesCompleted });
+        }
       }
     } catch (error) {
       console.error("Failed to submit keymap:", error);
     }
     await fetchNextPage();
-  }, [state.exercise, state.commandBuffer, state.commandStartedAt, state.keystrokes, fetchNextPage]);
+  }, [state.exercise, state.commandBuffer, state.commandStartedAt, state.keystrokes, fetchNextPage, isGuest]);
 
   useEffect(() => { fetchNextPage(); }, [fetchNextPage]);
   useEffect(() => { if (isPageComplete) submitTextPage(); }, [isPageComplete, submitTextPage]);
@@ -360,7 +516,11 @@ export default function TypingEngine({
         <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-zinc-300">Quick settings</h2>
-            <Link href="/settings" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Open full settings</Link>
+            {isGuest ? (
+              <span className="text-xs text-zinc-500">Guest mode (local only)</span>
+            ) : (
+              <Link href="/settings" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Open full settings</Link>
+            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="text-sm text-zinc-300">
@@ -374,21 +534,23 @@ export default function TypingEngine({
                 <option value="KEYMAP">Keymap drills</option>
               </select>
             </label>
-            <label className="text-sm text-zinc-300">
-              <span className="mb-1 block">Active word list</span>
-              <select
-                value={selectedList}
-                onChange={(e) => setSelectedList(e.target.value)}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="">Default English (5k words)</option>
-                {wordLists.map((list) => (
-                  <option key={list.id} value={list.id}>
-                    {list.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {!isGuest && (
+              <label className="text-sm text-zinc-300">
+                <span className="mb-1 block">Active word list</span>
+                <select
+                  value={selectedList}
+                  onChange={(e) => setSelectedList(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="">Default English (5k words)</option>
+                  {wordLists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {list.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="text-sm text-zinc-300">
               <span className="mb-1 block">Characters per page: {charsPerPage}</span>
               <input
