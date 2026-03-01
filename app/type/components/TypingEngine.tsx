@@ -124,6 +124,8 @@ export default function TypingEngine({
   });
   const inactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const typingInputRef = useRef<HTMLInputElement>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const isPageComplete = state.mode === "TEXT" && state.words.length > 0 && state.currentWordIdx >= state.words.length;
   const hasSettingChanges = useMemo(
@@ -252,47 +254,70 @@ export default function TypingEngine({
   useEffect(() => { fetchNextPage(); }, [fetchNextPage]);
   useEffect(() => { if (isPageComplete) submitTextPage(); }, [isPageComplete, submitTextPage]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (isLoading || isPageTransitioning) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const timestamp = Date.now();
-      triggerTypingActivity();
+  const handleTypingKeyDown = useCallback((e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void }) => {
+    if (isLoading || isPageTransitioning) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-      if (e.key === "Backspace") {
+    const timestamp = Date.now();
+    triggerTypingActivity();
+
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      dispatch({ type: "BACKSPACE" });
+      return;
+    }
+
+    if (state.mode === "KEYMAP") {
+      if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        dispatch({ type: "BACKSPACE" });
-        return;
-      }
-
-      if (state.mode === "KEYMAP") {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          if (state.commandBuffer.length > 0) {
-            submitKeymap();
-            dispatch({ type: "RESET_COMMAND" });
-          }
-          return;
+        if (state.commandBuffer.length > 0) {
+          submitKeymap();
+          dispatch({ type: "RESET_COMMAND" });
         }
-      } else if (e.key === " ") {
-        e.preventDefault();
-        if (state.currentWordIdx < state.words.length - 1) dispatch({ type: "NEXT_WORD", timestamp });
-        else if (state.currentWordIdx === state.words.length - 1 && state.typed[state.currentWordIdx]?.length > 0) dispatch({ type: "NEXT_WORD", timestamp });
         return;
       }
+    } else if (e.key === " ") {
+      e.preventDefault();
+      if (state.currentWordIdx < state.words.length - 1) dispatch({ type: "NEXT_WORD", timestamp });
+      else if (state.currentWordIdx === state.words.length - 1 && state.typed[state.currentWordIdx]?.length > 0) dispatch({ type: "NEXT_WORD", timestamp });
+      return;
+    }
 
-      if (e.key.length === 1) {
-        e.preventDefault();
-        dispatch({ type: "TYPE_CHAR", char: e.key, timestamp });
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    if (e.key.length === 1) {
+      e.preventDefault();
+      dispatch({ type: "TYPE_CHAR", char: e.key, timestamp });
+    }
   }, [isLoading, isPageTransitioning, state.mode, state.currentWordIdx, state.words.length, state.typed, state.commandBuffer, submitKeymap, triggerTypingActivity]);
 
   useEffect(() => {
-    containerRef.current?.focus();
+    const mediaQuery = window.matchMedia("(max-width: 768px) and (pointer: coarse)");
+    const updateViewportMode = () => {
+      setIsMobileViewport(mediaQuery.matches);
+    };
+
+    updateViewportMode();
+    mediaQuery.addEventListener("change", updateViewportMode);
+    return () => mediaQuery.removeEventListener("change", updateViewportMode);
+  }, []);
+
+  useEffect(() => {
+    if (isMobileViewport) return;
+
+    const handleDocumentKeyDown = (e: KeyboardEvent) => handleTypingKeyDown(e);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
+  }, [isMobileViewport, handleTypingKeyDown]);
+
+  useEffect(() => {
+    if (!isMobileViewport) {
+      containerRef.current?.focus();
+      return;
+    }
+
+    typingInputRef.current?.blur();
+  }, [isMobileViewport]);
+
+  useEffect(() => {
     return () => {
       if (inactivityTimeoutRef.current) {
         clearTimeout(inactivityTimeoutRef.current);
@@ -302,6 +327,27 @@ export default function TypingEngine({
 
   return (
     <div ref={containerRef} className="w-full max-w-4xl mx-auto outline-none" tabIndex={0}>
+      {isMobileViewport && (
+        <div className="mb-4 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
+          <label htmlFor="typing-input" className="mb-2 block text-sm text-zinc-400">
+            Tap the typing box to focus keyboard
+          </label>
+          <input
+            id="typing-input"
+            ref={typingInputRef}
+            type="text"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            inputMode="text"
+            onKeyDown={handleTypingKeyDown}
+            onChange={() => undefined}
+            className="w-full rounded-md border border-zinc-600 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            placeholder="Tap here and start typing"
+          />
+        </div>
+      )}
       {sessionStats && (
         <div className="flex gap-6 mb-6 text-sm text-zinc-400">
           <span>WPM: <span className="text-emerald-400 font-medium">{sessionStats.wpm ?? "—"}</span></span>
