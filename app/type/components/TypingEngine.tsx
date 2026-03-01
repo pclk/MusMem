@@ -137,6 +137,7 @@ export default function TypingEngine({
   const containerRef = useRef<HTMLDivElement>(null);
   const typingInputRef = useRef<HTMLInputElement>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isMobileTypingFocused, setIsMobileTypingFocused] = useState(false);
 
   const isPageComplete = state.mode === "TEXT" && state.words.length > 0 && state.currentWordIdx >= state.words.length;
   const hasSettingChanges = useMemo(
@@ -467,11 +468,17 @@ export default function TypingEngine({
   useEffect(() => {
     if (!isMobileViewport) {
       containerRef.current?.focus();
+      setIsMobileTypingFocused(false);
+      return;
+    }
+
+    if (isMobileTypingFocused) {
+      typingInputRef.current?.focus();
       return;
     }
 
     typingInputRef.current?.blur();
-  }, [isMobileViewport]);
+  }, [isMobileViewport, isMobileTypingFocused]);
 
   useEffect(() => {
     return () => {
@@ -483,27 +490,6 @@ export default function TypingEngine({
 
   return (
     <div ref={containerRef} className="w-full max-w-4xl mx-auto outline-none" tabIndex={0}>
-      {isMobileViewport && (
-        <div className="mb-4 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
-          <label htmlFor="typing-input" className="mb-2 block text-sm text-zinc-400">
-            Tap the typing box to focus keyboard
-          </label>
-          <input
-            id="typing-input"
-            ref={typingInputRef}
-            type="text"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            inputMode="text"
-            onKeyDown={handleTypingKeyDown}
-            onChange={() => undefined}
-            className="w-full rounded-md border border-zinc-600 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            placeholder="Tap here and start typing"
-          />
-        </div>
-      )}
       {sessionStats && (
         <div className="flex gap-6 mb-6 text-sm text-zinc-400">
           <span>WPM: <span className="text-emerald-400 font-medium">{sessionStats.wpm ?? "—"}</span></span>
@@ -605,11 +591,68 @@ export default function TypingEngine({
             <div className="text-zinc-400 animate-pulse text-xl text-center">{isPageTransitioning ? "Page complete! Loading next page..." : "Loading..."}</div>
           </div>
         ) : state.mode === "KEYMAP" && state.exercise ? (
-          <KeymapDisplay prompt={state.exercise.prompt} typedCommand={state.commandBuffer} acceptedInputs={state.exercise.acceptedInputs} lastSubmission={lastSubmission} />
+          <button
+            type="button"
+            onClick={() => {
+              if (!isMobileViewport) return;
+              setIsMobileTypingFocused(true);
+              typingInputRef.current?.focus();
+            }}
+            className={`w-full text-left ${isMobileViewport ? "cursor-text" : "cursor-default"}`}
+          >
+            <KeymapDisplay
+              prompt={state.exercise.prompt}
+              typedCommand={state.commandBuffer}
+              acceptedInputs={state.exercise.acceptedInputs}
+              lastSubmission={lastSubmission}
+              isFocused={!isMobileViewport || isMobileTypingFocused}
+            />
+          </button>
         ) : (
-          <WordDisplay words={state.words} currentWordIdx={state.currentWordIdx} currentCharIdx={state.currentCharIdx} typed={state.typed} />
+          <button
+            type="button"
+            onClick={() => {
+              if (!isMobileViewport) return;
+              setIsMobileTypingFocused(true);
+              typingInputRef.current?.focus();
+            }}
+            className={`w-full text-left ${isMobileViewport ? "cursor-text" : "cursor-default"}`}
+          >
+            <WordDisplay
+              words={state.words}
+              currentWordIdx={state.currentWordIdx}
+              currentCharIdx={state.currentCharIdx}
+              typed={state.typed}
+              showCursor={!isMobileViewport || isMobileTypingFocused}
+            />
+          </button>
         )}
       </div>
+
+      {isMobileViewport && (
+        <div className="mt-3">
+          <input
+            id="typing-input"
+            ref={typingInputRef}
+            type="text"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            inputMode="text"
+            enterKeyHint="done"
+            aria-label="Hidden typing input"
+            onKeyDown={handleTypingKeyDown}
+            onBlur={() => setIsMobileTypingFocused(false)}
+            onFocus={() => setIsMobileTypingFocused(true)}
+            onChange={() => undefined}
+            className="pointer-events-none absolute h-0 w-0 opacity-0"
+          />
+          {!isMobileTypingFocused && (
+            <p className="text-center text-sm text-zinc-500">Tap to type</p>
+          )}
+        </div>
+      )}
 
       <p className="mt-4 text-center text-base text-zinc-600">
         {state.mode === "KEYMAP" ? "Type command and press Enter (or Space) • Backspace to correct" : "Start typing to begin • Space to advance • Backspace to correct"}

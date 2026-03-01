@@ -5,6 +5,7 @@ interface WordDisplayProps {
   currentWordIdx: number;
   currentCharIdx: number;
   typed: string[];
+  showCursor?: boolean;
 }
 
 export default function WordDisplay({
@@ -12,6 +13,7 @@ export default function WordDisplay({
   currentWordIdx,
   currentCharIdx,
   typed,
+  showCursor = true,
 }: WordDisplayProps) {
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-2 text-2xl leading-relaxed font-mono select-none">
@@ -23,7 +25,7 @@ export default function WordDisplay({
             const typedChar = typedWord[charIdx];
             const isTyped = typedChar !== undefined;
             const isCorrect = typedChar === char;
-            const isCursorHere = isCurrentWord && charIdx === currentCharIdx;
+            const isCursorHere = showCursor && isCurrentWord && charIdx === currentCharIdx;
 
             let charClass = "text-zinc-500"; // untyped
             if (wordIdx < currentWordIdx || (isCurrentWord && charIdx < currentCharIdx && isTyped)) {
@@ -55,7 +57,8 @@ export default function WordDisplay({
             </span>
           )}
           {/* Cursor at end of current word */}
-          {wordIdx === currentWordIdx &&
+          {showCursor &&
+            wordIdx === currentWordIdx &&
             currentCharIdx === word.length && (
               <span className="relative">
                 <span className="absolute -left-px top-0 w-0.5 h-full bg-emerald-400 animate-pulse" />
