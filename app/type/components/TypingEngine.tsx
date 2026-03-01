@@ -297,14 +297,14 @@ export default function TypingEngine({
         const aggregated = aggregateBigramResults(results);
         const rawStored = localStorage.getItem(GUEST_BIGRAMS_KEY);
         const stored = rawStored ? (JSON.parse(rawStored) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
-        for (const [bigram, entry] of aggregated.entries()) {
+        aggregated.forEach((entry, bigram) => {
           const current = stored[bigram] ?? { attempts: 0, errors: 0, lastSeen: Date.now() };
           stored[bigram] = {
             attempts: current.attempts + entry.attempts,
             errors: current.errors + entry.errors,
             lastSeen: Date.now(),
           };
-        }
+        });
         localStorage.setItem(GUEST_BIGRAMS_KEY, JSON.stringify(stored));
 
         const correctChars = state.keystrokes.filter((k) => k.correct).length;
