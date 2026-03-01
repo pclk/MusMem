@@ -18,6 +18,8 @@ export default function SettingsForm({
   activeListId,
   wordLists,
 }: SettingsFormProps) {
+  const targetedPracticeTooltip =
+    "Controls how much of each page focuses on your weak patterns. Higher values include more words that match your weak bigrams; lower values include more random variety. If no weaknesses are recorded yet, pages are fully random.";
   const [charsPerPage, setCharsPerPage] = useState(initialCharsPerPage);
   const [targetedPracticeRatio, setTargetedPracticeRatio] = useState(
     initialTargetedPracticeRatio
@@ -81,7 +83,14 @@ export default function SettingsForm({
 
       <div>
         <label className="block text-sm font-medium text-zinc-300 mb-2">
-          Targeted practice intensity: {targetedPracticeRatio}%
+          Targeted practice intensity: {targetedPracticeRatio}%{" "}
+          <span
+            title={targetedPracticeTooltip}
+            aria-label="Targeted practice help"
+            className="cursor-help text-zinc-500"
+          >
+            (?)
+          </span>
         </label>
         <input
           type="range"
