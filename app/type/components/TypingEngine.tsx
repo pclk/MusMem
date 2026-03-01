@@ -98,6 +98,9 @@ export default function TypingEngine({
   activeListId,
   wordLists,
 }: TypingEngineProps) {
+  const targetedPracticeTooltip =
+    "Controls how much of each page focuses on your weak patterns. Higher values include more words that match your weak bigrams; lower values include more random variety. If no weaknesses are recorded yet, pages are fully random.";
+
   const [state, dispatch] = useReducer(typingReducer, {
     words: [], currentWordIdx: 0, currentCharIdx: 0, typed: [], keystrokes: [], mode: "TEXT", exercise: null, commandBuffer: "", commandStartedAt: null,
   });
@@ -353,7 +356,16 @@ export default function TypingEngine({
               />
             </label>
             <label className="text-sm text-zinc-300">
-              <span className="mb-1 block">Targeted practice: {targetedPracticeRatio}%</span>
+              <span className="mb-1 block">
+                Targeted practice: {targetedPracticeRatio}%{" "}
+                <span
+                  title={targetedPracticeTooltip}
+                  aria-label="Targeted practice help"
+                  className="cursor-help text-zinc-500"
+                >
+                  (?)
+                </span>
+              </span>
               <input
                 type="range"
                 min={0}
