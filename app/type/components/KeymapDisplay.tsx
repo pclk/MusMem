@@ -8,6 +8,7 @@ interface KeymapDisplayProps {
     correct: boolean;
     typedCommand: string;
   } | null;
+  isFocused?: boolean;
 }
 
 export default function KeymapDisplay({
@@ -15,6 +16,7 @@ export default function KeymapDisplay({
   typedCommand,
   acceptedInputs,
   lastSubmission,
+  isFocused = true,
 }: KeymapDisplayProps) {
   return (
     <div className="space-y-4 font-mono">
@@ -25,7 +27,7 @@ export default function KeymapDisplay({
 
       <div>
         <p className="text-zinc-400 text-sm uppercase tracking-wider">Command buffer</p>
-        <p className="text-xl mt-1 text-emerald-400">:{typedCommand || "_"}</p>
+        <p className="text-xl mt-1 text-emerald-400">:{typedCommand}{isFocused ? <span className="animate-pulse">|</span> : (!typedCommand ? "_" : "")}</p>
       </div>
 
       {lastSubmission && (
