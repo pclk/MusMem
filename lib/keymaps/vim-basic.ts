@@ -50,7 +50,7 @@ export const vimBasicExercises: KeymapExercise[] = [
   },
   {
     id: "vim-G",
-    prompt: "go to last line",
+    prompt: "Go to last line",
     acceptedInputs: ["G"],
     tags: ["navigation"],
     difficulty: "easy",

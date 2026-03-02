@@ -41,7 +41,7 @@ interface TypingEngineProps {
 type TypingAction =
   | { type: "SET_TEXT_PAGE"; words: string[] }
   | { type: "SET_KEYMAP_PAGE"; exercise: KeymapExercise }
-  | { type: "TYPE_CHAR"; char: string; timestamp: number }
+  | { type: "TYPE_CHAR"; char: string; timestamp: number; correct?: boolean }
   | { type: "BACKSPACE" }
   | { type: "NEXT_WORD"; timestamp: number }
   | { type: "RESET_COMMAND" };
@@ -59,7 +59,7 @@ function typingReducer(state: TypingState, action: TypingAction): TypingState {
           ...state,
           commandBuffer: state.commandBuffer + char,
           commandStartedAt: state.commandStartedAt ?? timestamp,
-          keystrokes: [...state.keystrokes, { char, timestamp, correct: true }],
+          keystrokes: [...state.keystrokes, { char, timestamp, correct: action.correct ?? true }],
         };
       }
       const currentWord = state.words[state.currentWordIdx] || "";
@@ -119,7 +119,7 @@ export default function TypingEngine({
   const [isPageTransitioning, setIsPageTransitioning] = useState(false);
   const [sessionStats, setSessionStats] = useState<{ accuracy: number; wpm: number; pagesCompleted: number } | null>(null);
   const [fadeIn, setFadeIn] = useState(true);
-  const [lastSubmission, setLastSubmission] = useState<{ correct: boolean; typedCommand: string } | null>(null);
+  const [lastSubmission, setLastSubmission] = useState<{ correct: boolean; typedCommand: string; displayTypedCommand?: string; expectedInput?: string } | null>(null);
   const [isSettingsVisible, setIsSettingsVisible] = useState(true);
   const [charsPerPage, setCharsPerPage] = useState(initialCharsPerPage);
   const [targetedPracticeRatio, setTargetedPracticeRatio] = useState(initialTargetedPracticeRatio);
@@ -347,13 +347,18 @@ export default function TypingEngine({
     setIsPageTransitioning(false);
   }, [state.words, state.typed, state.keystrokes, fetchNextPage, isGuest]);
 
-  const submitKeymap = useCallback(async () => {
+  const submitKeymap = useCallback(async (options?: { typedCommand?: string; correct?: boolean; displayTypedCommand?: string; expectedInput?: string }) => {
     if (!state.exercise) return;
-    const typedCommand = state.commandBuffer;
-    const correct = state.exercise.acceptedInputs.includes(typedCommand);
+    const typedCommand = options?.typedCommand ?? state.commandBuffer;
+    const correct = options?.correct ?? state.exercise.acceptedInputs.includes(typedCommand);
     const endedAt = Date.now();
     const latencyMs = state.commandStartedAt ? Math.max(0, endedAt - state.commandStartedAt) : 0;
-    setLastSubmission({ correct, typedCommand });
+    setLastSubmission({
+      correct,
+      typedCommand,
+      displayTypedCommand: options?.displayTypedCommand,
+      expectedInput: options?.expectedInput,
+    });
     try {
       if (isGuest) {
         const rawStored = localStorage.getItem(GUEST_KEYMAP_KEY);
@@ -425,14 +430,32 @@ export default function TypingEngine({
     }
 
     if (state.mode === "KEYMAP") {
-      if (e.key === "Enter" || e.key === " ") {
+      if (e.key.length === 1 && state.exercise) {
         e.preventDefault();
-        if (state.commandBuffer.length > 0) {
-          submitKeymap();
+        const typedCommand = `${state.commandBuffer}${e.key}`;
+        const acceptedInputs = state.exercise.acceptedInputs;
+        const expectedInput = acceptedInputs[0] ?? "";
+
+        if (acceptedInputs.includes(typedCommand)) {
+          dispatch({ type: "TYPE_CHAR", char: e.key, timestamp, correct: true });
+          submitKeymap({ typedCommand, correct: true, expectedInput });
           dispatch({ type: "RESET_COMMAND" });
+          return;
         }
-        return;
+
+        if (acceptedInputs.some((input) => input.startsWith(typedCommand))) {
+          dispatch({ type: "TYPE_CHAR", char: e.key, timestamp, correct: true });
+          return;
+        }
+
+        const displayTypedCommand = expectedInput
+          ? typedCommand.padEnd(expectedInput.length, "_")
+          : typedCommand;
+        dispatch({ type: "TYPE_CHAR", char: e.key, timestamp, correct: false });
+        submitKeymap({ typedCommand, correct: false, displayTypedCommand, expectedInput });
+        dispatch({ type: "RESET_COMMAND" });
       }
+      return;
     } else if (e.key === " ") {
       e.preventDefault();
       if (state.currentWordIdx < state.words.length - 1) dispatch({ type: "NEXT_WORD", timestamp });
@@ -444,7 +467,7 @@ export default function TypingEngine({
       e.preventDefault();
       dispatch({ type: "TYPE_CHAR", char: e.key, timestamp });
     }
-  }, [isLoading, isPageTransitioning, state.mode, state.currentWordIdx, state.words.length, state.typed, state.commandBuffer, submitKeymap, triggerTypingActivity]);
+  }, [isLoading, isPageTransitioning, state.mode, state.currentWordIdx, state.words.length, state.typed, state.commandBuffer, state.exercise, submitKeymap, triggerTypingActivity]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px) and (pointer: coarse)");
@@ -655,7 +678,7 @@ export default function TypingEngine({
       )}
 
       <p className="mt-4 text-center text-base text-zinc-600">
-        {state.mode === "KEYMAP" ? "Type command and press Enter (or Space) • Backspace to correct" : "Start typing to begin • Space to advance • Backspace to correct"}
+        {state.mode === "KEYMAP" ? "Type command to match prompt • Backspace to correct" : "Start typing to begin • Space to advance • Backspace to correct"}
       </p>
     </div>
   );
