@@ -7,6 +7,8 @@ interface KeymapDisplayProps {
   lastSubmission?: {
     correct: boolean;
     typedCommand: string;
+    displayTypedCommand?: string;
+    expectedInput?: string;
   } | null;
   isFocused?: boolean;
 }
@@ -18,6 +20,8 @@ export default function KeymapDisplay({
   lastSubmission,
   isFocused = true,
 }: KeymapDisplayProps) {
+  const expectedDisplay = lastSubmission?.expectedInput ?? acceptedInputs[0] ?? "";
+
   return (
     <div className="space-y-4 font-mono">
       <div>
@@ -34,7 +38,7 @@ export default function KeymapDisplay({
         <div className={lastSubmission.correct ? "text-emerald-400" : "text-red-400"}>
           {lastSubmission.correct
             ? "Correct"
-            : `Incorrect (${lastSubmission.typedCommand || "∅"}). Expected: ${acceptedInputs.join(" or ")}`}
+            : `Incorrect (${lastSubmission.displayTypedCommand || lastSubmission.typedCommand || "∅"}). Expected: ${expectedDisplay}`}
         </div>
       )}
     </div>
