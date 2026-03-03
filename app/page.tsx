@@ -32,6 +32,14 @@ export default async function HomePage() {
             Get started
           </Link>
         </div>
+        <div className="flex justify-center">
+          <Link
+            href="/guest"
+            className="inline-flex items-center justify-center rounded-lg border border-zinc-700 bg-zinc-900 px-6 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-zinc-800"
+          >
+            Continue as guest
+          </Link>
+        </div>
       </div>
     </div>
   );

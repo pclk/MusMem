@@ -2,12 +2,27 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import TypingEngine from "./components/TypingEngine";
 import Link from "next/link";
+import prisma from "@/lib/db";
 
 export default async function TypePage() {
   const session = await getSession();
   if (!session.userId) {
     redirect("/login");
   }
+
+  const [settings, wordLists] = await Promise.all([
+    prisma.userSettings.findUnique({
+      where: { userId: session.userId },
+    }),
+    prisma.wordList.findMany({
+      where: { userId: session.userId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+      },
+    }),
+  ]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -28,7 +43,13 @@ export default async function TypePage() {
         </div>
       </nav>
       <main className="flex-1 flex items-center justify-center p-6">
-        <TypingEngine />
+        <TypingEngine
+          initialCharsPerPage={settings?.charsPerPage ?? 200}
+          initialTargetedPracticeRatio={settings?.targetedPracticeRatio ?? 60}
+          initialMode={settings?.mode ?? "TEXT"}
+          activeListId={settings?.activeListId ?? null}
+          wordLists={wordLists}
+        />
       </main>
     </div>
   );

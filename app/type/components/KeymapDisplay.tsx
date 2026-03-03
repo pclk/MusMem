@@ -7,7 +7,10 @@ interface KeymapDisplayProps {
   lastSubmission?: {
     correct: boolean;
     typedCommand: string;
+    displayTypedCommand?: string;
+    expectedInput?: string;
   } | null;
+  isFocused?: boolean;
 }
 
 export default function KeymapDisplay({
@@ -15,7 +18,10 @@ export default function KeymapDisplay({
   typedCommand,
   acceptedInputs,
   lastSubmission,
+  isFocused = true,
 }: KeymapDisplayProps) {
+  const expectedDisplay = lastSubmission?.expectedInput ?? acceptedInputs[0] ?? "";
+
   return (
     <div className="space-y-4 font-mono">
       <div>
@@ -25,14 +31,14 @@ export default function KeymapDisplay({
 
       <div>
         <p className="text-zinc-400 text-sm uppercase tracking-wider">Command buffer</p>
-        <p className="text-xl mt-1 text-emerald-400">:{typedCommand || "_"}</p>
+        <p className="text-xl mt-1 text-emerald-400">:{typedCommand}{isFocused ? <span className="animate-pulse">|</span> : (!typedCommand ? "_" : "")}</p>
       </div>
 
       {lastSubmission && (
         <div className={lastSubmission.correct ? "text-emerald-400" : "text-red-400"}>
           {lastSubmission.correct
             ? "Correct"
-            : `Incorrect (${lastSubmission.typedCommand || "∅"}). Expected: ${acceptedInputs.join(" or ")}`}
+            : `Incorrect (${lastSubmission.displayTypedCommand || lastSubmission.typedCommand || "∅"}). Expected: ${expectedDisplay}`}
         </div>
       )}
     </div>
