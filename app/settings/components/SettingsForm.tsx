@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Button from "@/components/ui/Button";
+import HelpTooltip from "@/components/ui/HelpTooltip";
 
 interface SettingsFormProps {
   initialCharsPerPage: number;
@@ -84,13 +85,10 @@ export default function SettingsForm({
       <div>
         <label className="block text-sm font-medium text-zinc-300 mb-2">
           Targeted practice intensity: {targetedPracticeRatio}%{" "}
-          <span
-            title={targetedPracticeTooltip}
-            aria-label="Targeted practice help"
-            className="cursor-help text-zinc-500"
-          >
-            (?)
-          </span>
+          <HelpTooltip
+            content={targetedPracticeTooltip}
+            label="Targeted practice help"
+          />
         </label>
         <input
           type="range"

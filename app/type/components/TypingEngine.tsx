@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import Link from "next/link";
 import WordDisplay from "./WordDisplay";
 import KeymapDisplay from "./KeymapDisplay";
+import HelpTooltip from "@/components/ui/HelpTooltip";
 import { PracticeMode } from "@/lib/schemas/mode";
 import { KeymapExercise, vimBasicExercises } from "@/lib/keymaps/vim-basic";
 import englishWords from "@/lib/words/english-5k.json";
@@ -575,13 +576,10 @@ export default function TypingEngine({
             <label className="text-sm text-zinc-300">
               <span className="mb-1 block">
                 Targeted practice: {targetedPracticeRatio}%{" "}
-                <span
-                  title={targetedPracticeTooltip}
-                  aria-label="Targeted practice help"
-                  className="cursor-help text-zinc-500"
-                >
-                  (?)
-                </span>
+                <HelpTooltip
+                  content={targetedPracticeTooltip}
+                  label="Targeted practice help"
+                />
               </span>
               <input
                 type="range"
