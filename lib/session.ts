@@ -5,7 +5,8 @@ import path from "node:path";
 
 export interface SessionData {
   userId?: string;
-  username?: string;
+  email?: string;
+  name?: string;
 }
 
 const DUMMY_SESSION_SECRET =

@@ -8,15 +8,17 @@ import { createWordListSchema } from "@/lib/schemas/wordlist";
 describe("registerSchema", () => {
   it("accepts valid registration data", () => {
     const result = registerSchema.safeParse({
-      username: "testuser",
+      name: "Test User",
+      email: "test@example.com",
       password: "password123",
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects short username", () => {
+  it("rejects empty name", () => {
     const result = registerSchema.safeParse({
-      username: "ab",
+      name: "",
+      email: "test@example.com",
       password: "password123",
     });
     expect(result.success).toBe(false);
@@ -24,15 +26,17 @@ describe("registerSchema", () => {
 
   it("rejects short password", () => {
     const result = registerSchema.safeParse({
-      username: "testuser",
+      name: "Test User",
+      email: "test@example.com",
       password: "short",
     });
     expect(result.success).toBe(false);
   });
 
-  it("rejects username with special characters", () => {
+  it("rejects invalid email", () => {
     const result = registerSchema.safeParse({
-      username: "test user!",
+      name: "Test User",
+      email: "not-an-email",
       password: "password123",
     });
     expect(result.success).toBe(false);
@@ -42,15 +46,15 @@ describe("registerSchema", () => {
 describe("loginSchema", () => {
   it("accepts valid login data", () => {
     const result = loginSchema.safeParse({
-      username: "testuser",
+      email: "test@example.com",
       password: "password123",
     });
     expect(result.success).toBe(true);
   });
 
-  it("rejects empty username", () => {
+  it("rejects empty email", () => {
     const result = loginSchema.safeParse({
-      username: "",
+      email: "",
       password: "password123",
     });
     expect(result.success).toBe(false);
@@ -164,6 +168,27 @@ describe("updateSettingsSchema", () => {
   it("rejects targetedPracticeRatio above upper boundary", () => {
     const result = updateSettingsSchema.safeParse({
       targetedPracticeRatio: 101,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts bigramWindowSize within range", () => {
+    const result = updateSettingsSchema.safeParse({
+      bigramWindowSize: 20,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects bigramWindowSize below lower boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      bigramWindowSize: 4,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects bigramWindowSize above upper boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      bigramWindowSize: 101,
     });
     expect(result.success).toBe(false);
   });

@@ -2,8 +2,18 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { pageCompleteSchema } from "@/lib/schemas/page";
-import { extractBigramResults, aggregateBigramResults } from "@/lib/algorithm/bigram";
+import {
+  extractBigramResults,
+  aggregateBigramResults,
+  groupBigramResults,
+} from "@/lib/algorithm/bigram";
 import { calculateWpm, calculateAccuracy } from "@/lib/utils";
+import {
+  appendRecentBigramResults,
+  calculateRollingErrorRate,
+  DEFAULT_BIGRAM_WINDOW_SIZE,
+  MAX_BIGRAM_WINDOW_SIZE,
+} from "@/lib/bigram-insights";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +37,8 @@ export async function POST(request: Request) {
     const payload = parsed.data;
 
     const correctChars = payload.keystrokeTimings.filter((k) => k.correct).length;
-    const totalChars = payload.keystrokeTimings.length;
+    const totalChars =
+      payload.mode === "TEXT" ? payload.targetText.length : payload.keystrokeTimings.length;
     const accuracy = calculateAccuracy(correctChars, totalChars);
 
     let wpm: number | null = null;
@@ -41,39 +52,67 @@ export async function POST(request: Request) {
     if (payload.mode === "TEXT") {
       const bigramResults = extractBigramResults(payload.targetText, payload.typedText);
       const aggregated = aggregateBigramResults(bigramResults);
-
-      const upsertPromises = Array.from(aggregated.entries()).map(([bigram, { attempts, errors }]) =>
-        prisma.bigramStat.upsert({
-          where: { userId_bigram: { userId: session.userId!, bigram } },
-          create: {
-            userId: session.userId!,
-            bigram,
-            totalAttempts: attempts,
-            totalErrors: errors,
-            errorRate: attempts > 0 ? errors / attempts : 0,
-            lastSeen: new Date(),
-          },
-          update: {
-            totalAttempts: { increment: attempts },
-            totalErrors: { increment: errors },
-            lastSeen: new Date(),
-          },
-        })
-      );
-      await Promise.all(upsertPromises);
-
+      const grouped = groupBigramResults(bigramResults);
       const updatedBigrams = Array.from(aggregated.keys());
-      const bigramStats = await prisma.bigramStat.findMany({
-        where: { userId: session.userId, bigram: { in: updatedBigrams } },
-      });
+      const [settings, existingStats] = await Promise.all([
+        prisma.userSettings.findUnique({
+          where: { userId: session.userId },
+          select: { bigramWindowSize: true },
+        }),
+        prisma.bigramStat.findMany({
+          where: { userId: session.userId, bigram: { in: updatedBigrams } },
+          select: {
+            id: true,
+            bigram: true,
+            totalAttempts: true,
+            totalErrors: true,
+            recentResults: true,
+          },
+        }),
+      ]);
+      const existingMap = new Map(existingStats.map((stat) => [stat.bigram, stat]));
+      const bigramWindowSize =
+        settings?.bigramWindowSize ?? DEFAULT_BIGRAM_WINDOW_SIZE;
 
       await Promise.all(
-        bigramStats.map((stat) =>
-          prisma.bigramStat.update({
-            where: { id: stat.id },
-            data: { errorRate: stat.totalAttempts > 0 ? stat.totalErrors / stat.totalAttempts : 0 },
-          })
-        )
+        Array.from(aggregated.entries()).map(([bigram, { attempts, errors }]) => {
+          const existing = existingMap.get(bigram);
+          const nextRecentResults = appendRecentBigramResults(
+            existing?.recentResults,
+            grouped.get(bigram) ?? [],
+            existing?.totalAttempts ?? 0,
+            existing?.totalErrors ?? 0,
+            MAX_BIGRAM_WINDOW_SIZE
+          );
+          const nextTotalAttempts = (existing?.totalAttempts ?? 0) + attempts;
+          const nextTotalErrors = (existing?.totalErrors ?? 0) + errors;
+          const nextErrorRate = calculateRollingErrorRate(
+            nextRecentResults,
+            bigramWindowSize,
+            nextTotalAttempts,
+            nextTotalErrors
+          );
+
+          return prisma.bigramStat.upsert({
+            where: { userId_bigram: { userId: session.userId!, bigram } },
+            create: {
+              userId: session.userId!,
+              bigram,
+              totalAttempts: attempts,
+              totalErrors: errors,
+              errorRate: nextErrorRate,
+              recentResults: nextRecentResults,
+              lastSeen: new Date(),
+            },
+            update: {
+              totalAttempts: { increment: attempts },
+              totalErrors: { increment: errors },
+              errorRate: nextErrorRate,
+              recentResults: nextRecentResults,
+              lastSeen: new Date(),
+            },
+          });
+        })
       );
     } else {
       const attemptLatency = payload.correct ? payload.latencyMs : 0;

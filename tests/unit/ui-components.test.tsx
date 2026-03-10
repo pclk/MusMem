@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import HelpTooltip from "@/components/ui/HelpTooltip";
 import Input from "@/components/ui/Input";
 
 describe("Button", () => {
@@ -44,5 +45,39 @@ describe("Input", () => {
 
     const input = screen.getByRole("textbox", { name: "Email" });
     expect(input.className).toContain("border-zinc-700");
+  });
+});
+
+describe("HelpTooltip", () => {
+  it("shows tooltip content on hover and hides it on mouse leave", () => {
+    render(<HelpTooltip content="Explains targeted practice." label="Open help" />);
+
+    const button = screen.getByRole("button", { name: "Open help" });
+    const tooltip = screen.getByRole("tooltip");
+
+    expect(tooltip.className).toContain("invisible");
+
+    fireEvent.mouseEnter(button);
+    expect(tooltip.className).toContain("visible");
+    expect(screen.getByText("Explains targeted practice.")).toBeTruthy();
+
+    fireEvent.mouseLeave(button);
+    expect(tooltip.className).toContain("invisible");
+  });
+
+  it("keeps the tooltip open after click until toggled closed", () => {
+    render(<HelpTooltip content="Pinned help text." label="Pinned help" />);
+
+    const button = screen.getByRole("button", { name: "Pinned help" });
+    const tooltip = screen.getByRole("tooltip");
+
+    fireEvent.click(button);
+    expect(tooltip.className).toContain("visible");
+
+    fireEvent.mouseLeave(button);
+    expect(tooltip.className).toContain("visible");
+
+    fireEvent.click(button);
+    expect(tooltip.className).toContain("invisible");
   });
 });

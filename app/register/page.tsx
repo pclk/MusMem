@@ -9,7 +9,8 @@ import Button from "@/components/ui/Button";
 export default function RegisterPage() {
   const authDraftKey = "auth-form-draft";
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState("");
@@ -21,11 +22,13 @@ export default function RegisterPage() {
 
     try {
       const draft = JSON.parse(savedDraft) as {
-        username?: string;
+        name?: string;
+        email?: string;
         password?: string;
       };
 
-      setUsername(draft.username ?? "");
+      setName(draft.name ?? "");
+      setEmail(draft.email ?? "");
       setPassword(draft.password ?? "");
     } catch {
       sessionStorage.removeItem(authDraftKey);
@@ -33,8 +36,8 @@ export default function RegisterPage() {
   }, []);
 
   useEffect(() => {
-    sessionStorage.setItem(authDraftKey, JSON.stringify({ username, password }));
-  }, [username, password]);
+    sessionStorage.setItem(authDraftKey, JSON.stringify({ name, email, password }));
+  }, [name, email, password]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,7 +49,7 @@ export default function RegisterPage() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ name, email, password }),
       });
 
       const data = await res.json();
@@ -84,11 +87,20 @@ export default function RegisterPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            error={errors.username}
-            autoComplete="username"
+            label="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            error={errors.name}
+            autoComplete="name"
+            required
+          />
+          <Input
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            error={errors.email}
+            autoComplete="email"
             required
           />
           <Input

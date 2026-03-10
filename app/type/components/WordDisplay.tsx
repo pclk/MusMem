@@ -27,16 +27,9 @@ export default function WordDisplay({
             const isCorrect = typedChar === char;
             const isCursorHere = showCursor && isCurrentWord && charIdx === currentCharIdx;
 
-            let charClass = "text-zinc-500"; // untyped
+            let charClass = "text-white";
             if (wordIdx < currentWordIdx || (isCurrentWord && charIdx < currentCharIdx && isTyped)) {
-              // Already typed
-              if (isTyped && isCorrect) {
-                charClass = "text-zinc-600"; // correct - dim
-              } else if (isTyped && !isCorrect) {
-                charClass = "text-red-500/70"; // incorrect
-              } else if (!isTyped && wordIdx < currentWordIdx) {
-                charClass = "text-red-500/70"; // skipped
-              }
+              charClass = isCorrect ? "text-zinc-600" : "text-red-500/80";
             }
 
             return (
@@ -52,7 +45,7 @@ export default function WordDisplay({
           })}
           {/* Show extra typed characters beyond word length */}
           {typed[wordIdx] && typed[wordIdx].length > word.length && (
-            <span className="text-red-500/70">
+            <span className="text-red-500/80">
               {typed[wordIdx].slice(word.length)}
             </span>
           )}

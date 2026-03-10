@@ -10,8 +10,8 @@ datasource db {
 
 model User {
   id           String   @id @default(cuid())
+  name         String
   email        String   @unique
-  username     String   @unique
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -34,6 +34,7 @@ model UserSettings {
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   charsPerPage Int       @default(200)
   targetedPracticeRatio Int @default(60)
+  bigramWindowSize Int   @default(20)
   mode         PracticeMode @default(TEXT)
   activeListId String?
   activeList   WordList?  @relation(fields: [activeListId], references: [id], onDelete: SetNull)
@@ -63,6 +64,7 @@ model BigramStat {
   totalAttempts Int      @default(0)
   totalErrors   Int      @default(0)
   errorRate     Float    @default(0)
+  recentResults Int[]    @default([])
   lastSeen      DateTime @default(now())
 
   @@unique([userId, bigram])

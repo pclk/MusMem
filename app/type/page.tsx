@@ -46,6 +46,7 @@ export default async function TypePage() {
         <TypingEngine
           initialCharsPerPage={settings?.charsPerPage ?? 200}
           initialTargetedPracticeRatio={settings?.targetedPracticeRatio ?? 60}
+          initialBigramWindowSize={settings?.bigramWindowSize ?? 20}
           initialMode={settings?.mode ?? "TEXT"}
           activeListId={settings?.activeListId ?? null}
           wordLists={wordLists}

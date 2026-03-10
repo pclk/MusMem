@@ -67,6 +67,7 @@ export default async function SettingsPage() {
             initialCharsPerPage={settings?.charsPerPage ?? 200}
             activeListId={settings?.activeListId ?? null}
             initialTargetedPracticeRatio={settings?.targetedPracticeRatio ?? 60}
+            initialBigramWindowSize={settings?.bigramWindowSize ?? 20}
             initialMode={settings?.mode ?? "TEXT"}
             wordLists={wordListsForForm}
           />

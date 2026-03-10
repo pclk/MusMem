@@ -22,6 +22,7 @@ export default function GuestPage() {
         <TypingEngine
           initialCharsPerPage={200}
           initialTargetedPracticeRatio={60}
+          initialBigramWindowSize={20}
           initialMode="TEXT"
           activeListId={null}
           wordLists={[]}
