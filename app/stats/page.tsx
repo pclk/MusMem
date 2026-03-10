@@ -30,7 +30,6 @@ export default async function StatsPage() {
     prisma.bigramStat.findMany({
       where: {
         userId: session.userId,
-        totalAttempts: { gte: 5 },
       },
       orderBy: { errorRate: "desc" },
       take: 10,

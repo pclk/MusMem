@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import Link from "next/link";
 import WordDisplay from "./WordDisplay";
 import KeymapDisplay from "./KeymapDisplay";
+import BigramInsights from "./BigramInsights";
 import HelpTooltip from "@/components/ui/HelpTooltip";
 import { PracticeMode } from "@/lib/schemas/mode";
 import { KeymapExercise, vimBasicExercises } from "@/lib/keymaps/vim-basic";
+import { BigramStatRow, normalizeGuestBigramStats } from "@/lib/bigram-insights";
 import englishWords from "@/lib/words/english-5k.json";
 import { generatePage } from "@/lib/algorithm/page-generator";
 import { extractBigramResults, aggregateBigramResults } from "@/lib/algorithm/bigram";
@@ -69,6 +71,19 @@ function typingReducer(state: TypingState, action: TypingAction): TypingState {
       const newTyped = [...state.typed];
       if (!newTyped[state.currentWordIdx]) newTyped[state.currentWordIdx] = "";
       newTyped[state.currentWordIdx] += char;
+      const isFinalWord = state.currentWordIdx === state.words.length - 1;
+      const isFinalChar = state.currentCharIdx === currentWord.length - 1;
+
+      if (isFinalWord && isFinalChar) {
+        return {
+          ...state,
+          currentWordIdx: state.words.length,
+          currentCharIdx: 0,
+          typed: newTyped,
+          keystrokes: [...state.keystrokes, { char, timestamp, correct }],
+        };
+      }
+
       return { ...state, currentCharIdx: state.currentCharIdx + 1, typed: newTyped, keystrokes: [...state.keystrokes, { char, timestamp, correct }] };
     }
     case "BACKSPACE": {
@@ -127,7 +142,10 @@ export default function TypingEngine({
   const [mode, setMode] = useState<"TEXT" | "KEYMAP">(initialMode);
   const [selectedList, setSelectedList] = useState<string>(activeListId ?? "");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState("");
+  const [settingsMessage, setSettingsMessage] = useState("Changes apply automatically");
+  const [bigramStats, setBigramStats] = useState<BigramStatRow[]>([]);
+  const [isBigramStatsLoading, setIsBigramStatsLoading] = useState(true);
+  const [isResettingBigrams, setIsResettingBigrams] = useState(false);
   const [savedSettings, setSavedSettings] = useState({
     charsPerPage: initialCharsPerPage,
     targetedPracticeRatio: initialTargetedPracticeRatio,
@@ -139,16 +157,7 @@ export default function TypingEngine({
   const typingInputRef = useRef<HTMLInputElement>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileTypingFocused, setIsMobileTypingFocused] = useState(false);
-
   const isPageComplete = state.mode === "TEXT" && state.words.length > 0 && state.currentWordIdx >= state.words.length;
-  const hasSettingChanges = useMemo(
-    () =>
-      charsPerPage !== savedSettings.charsPerPage ||
-      targetedPracticeRatio !== savedSettings.targetedPracticeRatio ||
-      mode !== savedSettings.mode ||
-      selectedList !== savedSettings.selectedList,
-    [charsPerPage, targetedPracticeRatio, mode, selectedList, savedSettings]
-  );
 
   useEffect(() => {
     if (!isGuest) return;
@@ -187,6 +196,38 @@ export default function TypingEngine({
     }, 2000);
   }, []);
 
+  const loadBigramStats = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) {
+      setIsBigramStatsLoading(true);
+    }
+
+    try {
+      if (isGuest) {
+        const rawBigramStats = localStorage.getItem(GUEST_BIGRAMS_KEY);
+        const parsed = rawBigramStats
+          ? (JSON.parse(rawBigramStats) as Record<string, { attempts: number; errors: number; lastSeen: number }>)
+          : {};
+        setBigramStats(normalizeGuestBigramStats(parsed));
+        return;
+      }
+
+      const res = await fetch("/api/stats/bigrams", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error("Failed to fetch bigram stats");
+      }
+
+      const data = await res.json();
+      setBigramStats((data.bigrams ?? []) as BigramStatRow[]);
+    } catch (error) {
+      console.error("Failed to load bigram stats:", error);
+      setBigramStats([]);
+    } finally {
+      if (!options?.silent) {
+        setIsBigramStatsLoading(false);
+      }
+    }
+  }, [isGuest]);
+
   const fetchNextPage = useCallback(async () => {
     setIsLoading(true);
     setFadeIn(false);
@@ -208,7 +249,6 @@ export default function TypingEngine({
           const now = Date.now();
           const dayMs = 24 * 60 * 60 * 1000;
           const weakBigrams = Object.entries(bigramStats)
-            .filter(([, stat]) => stat.attempts >= 5)
             .map(([bigram, stat]) => {
               const errorRate = stat.attempts > 0 ? stat.errors / stat.attempts : 0;
               const hoursSinceLastSeen = (now - stat.lastSeen) / dayMs;
@@ -230,7 +270,14 @@ export default function TypingEngine({
           dispatch({ type: "SET_TEXT_PAGE", words: text.split(" ").filter((w) => w.length > 0) });
         }
       } else {
-        const res = await fetch("/api/pages/next");
+        const params = new URLSearchParams({
+          mode,
+          charsPerPage: String(charsPerPage),
+          targetedPracticeRatio: String(targetedPracticeRatio),
+          activeListId: selectedList,
+        });
+
+        const res = await fetch(`/api/pages/next?${params.toString()}`, { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch page");
         const data = await res.json();
         if (data.mode === "KEYMAP" && data.exercise) {
@@ -246,48 +293,7 @@ export default function TypingEngine({
     } finally {
       setIsLoading(false);
     }
-  }, [isGuest, mode, charsPerPage, targetedPracticeRatio]);
-
-  const handleSaveSettings = useCallback(async () => {
-    setIsSavingSettings(true);
-    setSettingsMessage("");
-    try {
-      if (isGuest) {
-        localStorage.setItem(
-          GUEST_SETTINGS_KEY,
-          JSON.stringify({ charsPerPage, targetedPracticeRatio, mode })
-        );
-        setSavedSettings({ charsPerPage, targetedPracticeRatio, mode, selectedList: "" });
-        setSettingsMessage("Guest settings saved locally");
-        await fetchNextPage();
-        return;
-      }
-
-      const res = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          charsPerPage,
-          targetedPracticeRatio,
-          mode,
-          activeListId: selectedList || null,
-        }),
-      });
-
-      if (res.ok) {
-        setSavedSettings({ charsPerPage, targetedPracticeRatio, mode, selectedList });
-        setSettingsMessage("Settings saved");
-        await fetchNextPage();
-      } else {
-        const data = await res.json();
-        setSettingsMessage(data.error || "Failed to save");
-      }
-    } catch {
-      setSettingsMessage("Something went wrong");
-    } finally {
-      setIsSavingSettings(false);
-    }
-  }, [charsPerPage, targetedPracticeRatio, mode, selectedList, fetchNextPage, isGuest]);
+  }, [isGuest, mode, charsPerPage, targetedPracticeRatio, selectedList]);
 
   const submitTextPage = useCallback(async () => {
     const targetText = state.words.join(" ");
@@ -310,7 +316,7 @@ export default function TypingEngine({
         localStorage.setItem(GUEST_BIGRAMS_KEY, JSON.stringify(stored));
 
         const correctChars = state.keystrokes.filter((k) => k.correct).length;
-        const totalChars = state.keystrokes.length;
+        const totalChars = targetText.length;
         const accuracy = calculateAccuracy(correctChars, totalChars);
 
         let wpm = 0;
@@ -344,9 +350,10 @@ export default function TypingEngine({
     } catch (error) {
       console.error("Failed to submit page:", error);
     }
+    await loadBigramStats({ silent: true });
     await fetchNextPage();
     setIsPageTransitioning(false);
-  }, [state.words, state.typed, state.keystrokes, fetchNextPage, isGuest]);
+  }, [state.words, state.typed, state.keystrokes, fetchNextPage, isGuest, loadBigramStats]);
 
   const submitKeymap = useCallback(async (options?: { typedCommand?: string; correct?: boolean; displayTypedCommand?: string; expectedInput?: string }) => {
     if (!state.exercise) return;
@@ -414,11 +421,104 @@ export default function TypingEngine({
     await fetchNextPage();
   }, [state.exercise, state.commandBuffer, state.commandStartedAt, state.keystrokes, fetchNextPage, isGuest]);
 
+  const handleResetBigramInsights = useCallback(async () => {
+    setIsResettingBigrams(true);
+    try {
+      if (isGuest) {
+        localStorage.removeItem(GUEST_BIGRAMS_KEY);
+      } else {
+        const res = await fetch("/api/stats/bigrams", {
+          method: "DELETE",
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to reset bigram stats");
+        }
+      }
+
+      setBigramStats([]);
+      await loadBigramStats({ silent: true });
+      await fetchNextPage();
+    } catch (error) {
+      console.error("Failed to reset bigram insights:", error);
+    } finally {
+      setIsResettingBigrams(false);
+    }
+  }, [fetchNextPage, isGuest, loadBigramStats]);
+
+  useEffect(() => { loadBigramStats(); }, [loadBigramStats]);
   useEffect(() => { fetchNextPage(); }, [fetchNextPage]);
   useEffect(() => { if (isPageComplete) submitTextPage(); }, [isPageComplete, submitTextPage]);
 
+  useEffect(() => {
+    const nextSettings = {
+      charsPerPage,
+      targetedPracticeRatio,
+      mode,
+      selectedList: isGuest ? "" : selectedList,
+    };
+
+    if (
+      nextSettings.charsPerPage === savedSettings.charsPerPage &&
+      nextSettings.targetedPracticeRatio === savedSettings.targetedPracticeRatio &&
+      nextSettings.mode === savedSettings.mode &&
+      nextSettings.selectedList === savedSettings.selectedList
+    ) {
+      return;
+    }
+
+    setIsSavingSettings(true);
+    setSettingsMessage(isGuest ? "Applying locally..." : "Saving changes...");
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        if (isGuest) {
+          localStorage.setItem(
+            GUEST_SETTINGS_KEY,
+            JSON.stringify({
+              charsPerPage: nextSettings.charsPerPage,
+              targetedPracticeRatio: nextSettings.targetedPracticeRatio,
+              mode: nextSettings.mode,
+            })
+          );
+          setSavedSettings(nextSettings);
+          setSettingsMessage("Changes apply automatically");
+          return;
+        }
+
+        const res = await fetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            charsPerPage: nextSettings.charsPerPage,
+            targetedPracticeRatio: nextSettings.targetedPracticeRatio,
+            mode: nextSettings.mode,
+            activeListId: nextSettings.selectedList || null,
+          }),
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ error: "Failed to save" }));
+          setSettingsMessage(data.error || "Failed to save");
+          return;
+        }
+
+        setSavedSettings(nextSettings);
+        setSettingsMessage("Changes apply automatically");
+      } catch {
+        setSettingsMessage("Something went wrong");
+      } finally {
+        setIsSavingSettings(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [charsPerPage, targetedPracticeRatio, mode, selectedList, savedSettings, isGuest]);
+
   const handleTypingKeyDown = useCallback((e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void }) => {
-    if (isLoading || isPageTransitioning) return;
+    if (isLoading || isPageTransitioning || isPageComplete) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     const timestamp = Date.now();
@@ -468,7 +568,7 @@ export default function TypingEngine({
       e.preventDefault();
       dispatch({ type: "TYPE_CHAR", char: e.key, timestamp });
     }
-  }, [isLoading, isPageTransitioning, state.mode, state.currentWordIdx, state.words.length, state.typed, state.commandBuffer, state.exercise, submitKeymap, triggerTypingActivity]);
+  }, [isLoading, isPageTransitioning, isPageComplete, state.mode, state.currentWordIdx, state.words.length, state.typed, state.commandBuffer, state.exercise, submitKeymap, triggerTypingActivity]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px) and (pointer: coarse)");
@@ -522,86 +622,92 @@ export default function TypingEngine({
         </div>
       )}
 
-      <div className={`overflow-hidden transition-all duration-200 ${isSettingsVisible ? "max-h-[400px] opacity-100 mb-5" : "max-h-0 opacity-0 mb-0"}`}>
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-zinc-300">Quick settings</h2>
-            {isGuest ? (
-              <span className="text-xs text-zinc-500">Guest mode (local only)</span>
-            ) : (
-              <Link href="/settings" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Open full settings</Link>
-            )}
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="text-sm text-zinc-300">
-              <span className="mb-1 block">Practice mode</span>
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as "TEXT" | "KEYMAP")}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="TEXT">Text typing</option>
-                <option value="KEYMAP">Keymap drills</option>
-              </select>
-            </label>
-            {!isGuest && (
+      <div className={`overflow-hidden transition-all duration-300 ${isSettingsVisible ? "max-h-[1600px] opacity-100 mb-5" : "max-h-0 opacity-0 mb-0"}`}>
+        <div className="space-y-3">
+          <BigramInsights
+            stats={bigramStats}
+            isLoading={isBigramStatsLoading}
+            isResetting={isResettingBigrams}
+            mode={mode}
+            onReset={handleResetBigramInsights}
+          />
+          <div className="rounded-[28px] border border-zinc-800 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.12),_transparent_40%),rgba(24,24,27,0.58)] p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.28em] text-zinc-500">Session control</p>
+                <h2 className="mt-2 text-sm font-semibold text-zinc-100">Quick settings</h2>
+              </div>
+              {isGuest ? (
+                <span className="text-xs text-zinc-500">Guest mode (local only)</span>
+              ) : (
+                <Link href="/settings" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">Open full settings</Link>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <label className="text-sm text-zinc-300">
-                <span className="mb-1 block">Active word list</span>
+                <span className="mb-1 block">Practice mode</span>
                 <select
-                  value={selectedList}
-                  onChange={(e) => setSelectedList(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as "TEXT" | "KEYMAP")}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  <option value="">Default English (5k words)</option>
-                  {wordLists.map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {list.name}
-                    </option>
-                  ))}
+                  <option value="TEXT">Text typing</option>
+                  <option value="KEYMAP">Keymap drills</option>
                 </select>
               </label>
-            )}
-            <label className="text-sm text-zinc-300">
-              <span className="mb-1 block">Characters per page: {charsPerPage}</span>
-              <input
-                type="range"
-                min={50}
-                max={500}
-                step={10}
-                value={charsPerPage}
-                onChange={(e) => setCharsPerPage(Number(e.target.value))}
-                className="w-full accent-emerald-500"
-              />
-            </label>
-            <label className="text-sm text-zinc-300">
-              <span className="mb-1 block">
-                Targeted practice: {targetedPracticeRatio}%{" "}
-                <HelpTooltip
-                  content={targetedPracticeTooltip}
-                  label="Targeted practice help"
+              {!isGuest && (
+                <label className="text-sm text-zinc-300">
+                  <span className="mb-1 block">Active word list</span>
+                  <select
+                    value={selectedList}
+                    onChange={(e) => setSelectedList(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">Default English (5k words)</option>
+                    {wordLists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
+                <span className="mb-1 block">Characters per page: {charsPerPage}</span>
+                <input
+                  type="range"
+                  min={50}
+                  max={500}
+                  step={10}
+                  value={charsPerPage}
+                  onChange={(e) => setCharsPerPage(Number(e.target.value))}
+                  className="w-full accent-emerald-500"
                 />
+              </label>
+              <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
+                <span className="mb-1 block">
+                  Targeted practice: {targetedPracticeRatio}%{" "}
+                  <HelpTooltip
+                    content={targetedPracticeTooltip}
+                    label="Targeted practice help"
+                  />
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={targetedPracticeRatio}
+                  onChange={(e) => setTargetedPracticeRatio(Number(e.target.value))}
+                  className="w-full accent-emerald-500"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex items-center gap-3">
+              <span className="text-sm text-zinc-400">
+                {isSavingSettings ? "Saving..." : settingsMessage}
               </span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={5}
-                value={targetedPracticeRatio}
-                onChange={(e) => setTargetedPracticeRatio(Number(e.target.value))}
-                className="w-full accent-emerald-500"
-              />
-            </label>
-          </div>
-          <div className="mt-3 flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleSaveSettings}
-              disabled={isSavingSettings || !hasSettingChanges}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-700"
-            >
-              {isSavingSettings ? "Saving..." : "Save"}
-            </button>
-            {settingsMessage && <span className="text-sm text-zinc-400">{settingsMessage}</span>}
+            </div>
           </div>
         </div>
       </div>

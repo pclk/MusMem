@@ -27,7 +27,8 @@ export async function POST(request: Request) {
     const payload = parsed.data;
 
     const correctChars = payload.keystrokeTimings.filter((k) => k.correct).length;
-    const totalChars = payload.keystrokeTimings.length;
+    const totalChars =
+      payload.mode === "TEXT" ? payload.targetText.length : payload.keystrokeTimings.length;
     const accuracy = calculateAccuracy(correctChars, totalChars);
 
     let wpm: number | null = null;
