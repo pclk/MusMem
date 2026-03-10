@@ -10,5 +10,3 @@ export const createWordListSchema = z.object({
     .min(1, "Word list must contain at least one word")
     .max(10000, "Word list can contain at most 10,000 words"),
 });
-
-export type CreateWordListInput = z.infer<typeof createWordListSchema>;

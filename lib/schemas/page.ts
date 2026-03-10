@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { practiceModeSchema } from "@/lib/schemas/mode";
 
 export const keystrokeSchema = z.object({
   char: z.string(),
@@ -29,22 +28,4 @@ export const pageCompleteSchema = z.discriminatedUnion("mode", [
   textPageCompleteSchema,
   keymapPageCompleteSchema,
 ]);
-
-export const nextPageResponseSchema = z.object({
-  mode: practiceModeSchema,
-  text: z.string().optional(),
-  exercise: z
-    .object({
-      id: z.string(),
-      prompt: z.string(),
-      acceptedInputs: z.array(z.string()),
-      tags: z.array(z.string()).optional(),
-      difficulty: z.enum(["easy", "medium", "hard"]).optional(),
-      lesson: z.string().optional(),
-    })
-    .optional(),
-});
-
-export type Keystroke = z.infer<typeof keystrokeSchema>;
 export type PageCompleteInput = z.infer<typeof pageCompleteSchema>;
-export type NextPageResponse = z.infer<typeof nextPageResponseSchema>;

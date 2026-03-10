@@ -17,15 +17,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const { username, password } = parsed.data;
+    const { name, email, password } = parsed.data;
 
     const existingUser = await prisma.user.findUnique({
-      where: { username },
+      where: { email },
     });
 
     if (existingUser) {
       return NextResponse.json(
-        { error: "A user with this username already exists" },
+        { error: "A user with this email already exists" },
         { status: 409 }
       );
     }
@@ -34,8 +34,8 @@ export async function POST(request: Request) {
 
     const user = await prisma.user.create({
       data: {
-        email: `${username}@local.musmem`,
-        username,
+        name,
+        email,
         passwordHash,
         settings: {
           create: { charsPerPage: 200, targetedPracticeRatio: 60 },
@@ -45,11 +45,12 @@ export async function POST(request: Request) {
 
     const session = await getSession();
     session.userId = user.id;
-    session.username = user.username;
+    session.email = user.email;
+    session.name = user.name;
     await session.save();
 
     return NextResponse.json(
-      { id: user.id, username: user.username, email: user.email },
+      { id: user.id, name: user.name, email: user.email },
       { status: 201 }
     );
   } catch (error) {

@@ -2,7 +2,8 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Authentication", () => {
   const testUser = {
-    username: `testuser${Date.now()}`,
+    name: "Test User",
+    email: `testuser${Date.now()}@example.com`,
     password: "testpassword123",
   };
 
@@ -20,24 +21,25 @@ test.describe("Authentication", () => {
   test("should show login form", async ({ page }) => {
     await page.goto("/login");
     await expect(page.getByText("Welcome back")).toBeVisible();
-    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
   });
 
   test("should show register form", async ({ page }) => {
     await page.goto("/register");
     await expect(page.getByText("Create an account")).toBeVisible();
-    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page.getByLabel("Name")).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeVisible();
     await expect(page.getByLabel("Password")).toBeVisible();
   });
 
   test("should show error for invalid login", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Username").fill("nonexistent");
+    await page.getByLabel("Email").fill("nonexistent@example.com");
     await page.getByLabel("Password").fill("wrongpassword");
     await page.getByRole("button", { name: "Log in" }).click();
     await expect(
-      page.getByText("Invalid username or password")
+      page.getByText("Invalid email or password")
     ).toBeVisible();
   });
 
@@ -45,7 +47,8 @@ test.describe("Authentication", () => {
     page,
   }) => {
     await page.goto("/register");
-    await page.getByLabel("Username").fill(testUser.username);
+    await page.getByLabel("Name").fill(testUser.name);
+    await page.getByLabel("Email").fill(testUser.email);
     await page.getByLabel("Password").fill(testUser.password);
     await page.getByRole("button", { name: "Create account" }).click();
     await page.waitForURL("/type", { timeout: 10000 });

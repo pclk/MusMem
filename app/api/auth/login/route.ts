@@ -17,15 +17,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const { username, password } = parsed.data;
+    const { email, password } = parsed.data;
 
     const user = await prisma.user.findUnique({
-      where: { username },
+      where: { email },
     });
 
     if (!user) {
       return NextResponse.json(
-        { error: "Invalid username or password" },
+        { error: "Invalid email or password" },
         { status: 401 }
       );
     }
@@ -34,19 +34,20 @@ export async function POST(request: Request) {
 
     if (!passwordValid) {
       return NextResponse.json(
-        { error: "Invalid username or password" },
+        { error: "Invalid email or password" },
         { status: 401 }
       );
     }
 
     const session = await getSession();
     session.userId = user.id;
-    session.username = user.username;
+    session.email = user.email;
+    session.name = user.name;
     await session.save();
 
     return NextResponse.json({
       id: user.id,
-      username: user.username,
+      name: user.name,
       email: user.email,
     });
   } catch (error) {

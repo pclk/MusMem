@@ -9,7 +9,7 @@ import Button from "@/components/ui/Button";
 export default function LoginPage() {
   const authDraftKey = "auth-form-draft";
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,11 +20,11 @@ export default function LoginPage() {
 
     try {
       const draft = JSON.parse(savedDraft) as {
-        username?: string;
+        email?: string;
         password?: string;
       };
 
-      setUsername(draft.username ?? "");
+      setEmail(draft.email ?? "");
       setPassword(draft.password ?? "");
     } catch {
       sessionStorage.removeItem(authDraftKey);
@@ -32,8 +32,8 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    sessionStorage.setItem(authDraftKey, JSON.stringify({ username, password }));
-  }, [username, password]);
+    sessionStorage.setItem(authDraftKey, JSON.stringify({ email, password }));
+  }, [email, password]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +44,7 @@ export default function LoginPage() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       if (!res.ok) {
@@ -73,10 +73,11 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
+            label="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
             required
           />
           <Input

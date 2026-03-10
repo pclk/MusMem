@@ -7,5 +7,3 @@ export const updateSettingsSchema = z.object({
   mode: practiceModeSchema.optional(),
   activeListId: z.string().nullable().optional(),
 });
-
-export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
