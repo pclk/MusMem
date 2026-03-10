@@ -6,6 +6,10 @@ import Card from "@/components/ui/Card";
 import WpmChart from "./components/WpmChart";
 import BigramTable from "./components/BigramTable";
 import KeymapStatsTable from "./components/KeymapStatsTable";
+import {
+  DEFAULT_BIGRAM_WINDOW_SIZE,
+  materializeBigramStats,
+} from "@/lib/bigram-insights";
 
 export default async function StatsPage() {
   const session = await getSession();
@@ -13,7 +17,11 @@ export default async function StatsPage() {
     redirect("/login");
   }
 
-  const [sessions, worstBigrams, keymapStats, totals] = await Promise.all([
+  const [settings, sessions, rawBigrams, keymapStats, totals] = await Promise.all([
+    prisma.userSettings.findUnique({
+      where: { userId: session.userId },
+      select: { bigramWindowSize: true },
+    }),
     prisma.typingSession.findMany({
       where: { userId: session.userId },
       orderBy: { startedAt: "desc" },
@@ -28,16 +36,12 @@ export default async function StatsPage() {
       },
     }),
     prisma.bigramStat.findMany({
-      where: {
-        userId: session.userId,
-      },
-      orderBy: { errorRate: "desc" },
-      take: 10,
+      where: { userId: session.userId },
       select: {
         bigram: true,
-        errorRate: true,
         totalAttempts: true,
         totalErrors: true,
+        recentResults: true,
       },
     }),
     prisma.keymapCommandStat.findMany({
@@ -57,6 +61,11 @@ export default async function StatsPage() {
       _sum: { charsTyped: true, pagesCompleted: true },
     }),
   ]);
+
+  const worstBigrams = materializeBigramStats(
+    rawBigrams,
+    settings?.bigramWindowSize ?? DEFAULT_BIGRAM_WINDOW_SIZE
+  ).slice(0, 10);
 
   const sessionsWithAccuracy = sessions.filter((s) => s.accuracy !== null);
   const overallAccuracy =

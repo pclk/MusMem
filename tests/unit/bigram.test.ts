@@ -3,6 +3,7 @@ import {
   extractBigrams,
   extractBigramResults,
   aggregateBigramResults,
+  groupBigramResults,
 } from "@/lib/algorithm/bigram";
 
 describe("extractBigrams", () => {
@@ -81,5 +82,18 @@ describe("aggregateBigramResults", () => {
   it("returns empty map for empty input", () => {
     const aggregated = aggregateBigramResults([]);
     expect(aggregated.size).toBe(0);
+  });
+});
+
+describe("groupBigramResults", () => {
+  it("preserves ordered outcomes for each repeated bigram", () => {
+    const grouped = groupBigramResults([
+      { bigram: "th", correct: true },
+      { bigram: "he", correct: false },
+      { bigram: "th", correct: false },
+    ]);
+
+    expect(grouped.get("th")).toEqual([true, false]);
+    expect(grouped.get("he")).toEqual([false]);
   });
 });

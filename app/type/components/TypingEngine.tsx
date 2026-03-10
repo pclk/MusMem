@@ -8,10 +8,20 @@ import BigramInsights from "./BigramInsights";
 import HelpTooltip from "@/components/ui/HelpTooltip";
 import { PracticeMode } from "@/lib/schemas/mode";
 import { KeymapExercise, vimBasicExercises } from "@/lib/keymaps/vim-basic";
-import { BigramStatRow, normalizeGuestBigramStats } from "@/lib/bigram-insights";
+import {
+  appendRecentBigramResults,
+  BigramStatRow,
+  GuestBigramStatRow,
+  MAX_BIGRAM_WINDOW_SIZE,
+  normalizeGuestBigramStats,
+} from "@/lib/bigram-insights";
 import englishWords from "@/lib/words/english-5k.json";
 import { generatePage } from "@/lib/algorithm/page-generator";
-import { extractBigramResults, aggregateBigramResults } from "@/lib/algorithm/bigram";
+import {
+  extractBigramResults,
+  aggregateBigramResults,
+  groupBigramResults,
+} from "@/lib/algorithm/bigram";
 import { calculateAccuracy, calculateWpm } from "@/lib/utils";
 
 interface Keystroke {
@@ -35,6 +45,7 @@ interface TypingState {
 interface TypingEngineProps {
   initialCharsPerPage: number;
   initialTargetedPracticeRatio: number;
+  initialBigramWindowSize: number;
   initialMode: "TEXT" | "KEYMAP";
   activeListId: string | null;
   wordLists: { id: string; name: string }[];
@@ -91,7 +102,29 @@ function typingReducer(state: TypingState, action: TypingAction): TypingState {
         if (!state.commandBuffer.length) return state;
         return { ...state, commandBuffer: state.commandBuffer.slice(0, -1) };
       }
-      if (state.currentCharIdx === 0) return state;
+      if (state.currentCharIdx === 0) {
+        if (state.currentWordIdx === 0) return state;
+
+        const previousWordIdx = state.currentWordIdx - 1;
+        const newTyped = [...state.typed];
+        const previousTyped = newTyped[previousWordIdx] || "";
+
+        if (!previousTyped.length) {
+          return {
+            ...state,
+            currentWordIdx: previousWordIdx,
+            currentCharIdx: 0,
+          };
+        }
+
+        newTyped[previousWordIdx] = previousTyped.slice(0, -1);
+        return {
+          ...state,
+          currentWordIdx: previousWordIdx,
+          currentCharIdx: newTyped[previousWordIdx].length,
+          typed: newTyped,
+        };
+      }
       const newTyped = [...state.typed];
       if (newTyped[state.currentWordIdx]) newTyped[state.currentWordIdx] = newTyped[state.currentWordIdx].slice(0, -1);
       return { ...state, currentCharIdx: state.currentCharIdx - 1, typed: newTyped };
@@ -120,6 +153,7 @@ const GUEST_SUMMARY_KEY = "guest-summary-stats";
 export default function TypingEngine({
   initialCharsPerPage,
   initialTargetedPracticeRatio,
+  initialBigramWindowSize,
   initialMode,
   activeListId,
   wordLists,
@@ -139,6 +173,7 @@ export default function TypingEngine({
   const [isSettingsVisible, setIsSettingsVisible] = useState(true);
   const [charsPerPage, setCharsPerPage] = useState(initialCharsPerPage);
   const [targetedPracticeRatio, setTargetedPracticeRatio] = useState(initialTargetedPracticeRatio);
+  const [bigramWindowSize, setBigramWindowSize] = useState(initialBigramWindowSize);
   const [mode, setMode] = useState<"TEXT" | "KEYMAP">(initialMode);
   const [selectedList, setSelectedList] = useState<string>(activeListId ?? "");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -149,6 +184,7 @@ export default function TypingEngine({
   const [savedSettings, setSavedSettings] = useState({
     charsPerPage: initialCharsPerPage,
     targetedPracticeRatio: initialTargetedPracticeRatio,
+    bigramWindowSize: initialBigramWindowSize,
     mode: initialMode,
     selectedList: activeListId ?? "",
   });
@@ -167,24 +203,28 @@ export default function TypingEngine({
       const parsed = JSON.parse(rawSettings) as {
         charsPerPage?: number;
         targetedPracticeRatio?: number;
+        bigramWindowSize?: number;
         mode?: "TEXT" | "KEYMAP";
       };
       const nextCharsPerPage = parsed.charsPerPage ?? initialCharsPerPage;
       const nextTargetedRatio = parsed.targetedPracticeRatio ?? initialTargetedPracticeRatio;
+      const nextBigramWindowSize = parsed.bigramWindowSize ?? initialBigramWindowSize;
       const nextMode = parsed.mode ?? initialMode;
       setCharsPerPage(nextCharsPerPage);
       setTargetedPracticeRatio(nextTargetedRatio);
+      setBigramWindowSize(nextBigramWindowSize);
       setMode(nextMode);
       setSavedSettings((current) => ({
         ...current,
         charsPerPage: nextCharsPerPage,
         targetedPracticeRatio: nextTargetedRatio,
+        bigramWindowSize: nextBigramWindowSize,
         mode: nextMode,
       }));
     } catch {
       localStorage.removeItem(GUEST_SETTINGS_KEY);
     }
-  }, [isGuest, initialCharsPerPage, initialTargetedPracticeRatio, initialMode]);
+  }, [isGuest, initialCharsPerPage, initialTargetedPracticeRatio, initialBigramWindowSize, initialMode]);
 
   const triggerTypingActivity = useCallback(() => {
     setIsSettingsVisible(false);
@@ -205,13 +245,16 @@ export default function TypingEngine({
       if (isGuest) {
         const rawBigramStats = localStorage.getItem(GUEST_BIGRAMS_KEY);
         const parsed = rawBigramStats
-          ? (JSON.parse(rawBigramStats) as Record<string, { attempts: number; errors: number; lastSeen: number }>)
+          ? (JSON.parse(rawBigramStats) as Record<string, GuestBigramStatRow>)
           : {};
-        setBigramStats(normalizeGuestBigramStats(parsed));
+        setBigramStats(normalizeGuestBigramStats(parsed, bigramWindowSize));
         return;
       }
 
-      const res = await fetch("/api/stats/bigrams", { cache: "no-store" });
+      const res = await fetch(
+        `/api/stats/bigrams?bigramWindowSize=${bigramWindowSize}`,
+        { cache: "no-store" }
+      );
       if (!res.ok) {
         throw new Error("Failed to fetch bigram stats");
       }
@@ -226,7 +269,7 @@ export default function TypingEngine({
         setIsBigramStatsLoading(false);
       }
     }
-  }, [isGuest]);
+  }, [bigramWindowSize, isGuest]);
 
   const fetchNextPage = useCallback(async () => {
     setIsLoading(true);
@@ -245,17 +288,26 @@ export default function TypingEngine({
           dispatch({ type: "SET_KEYMAP_PAGE", exercise });
         } else {
           const rawBigramStats = localStorage.getItem(GUEST_BIGRAMS_KEY);
-          const bigramStats = rawBigramStats ? (JSON.parse(rawBigramStats) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
+          const bigramStats = rawBigramStats
+            ? (JSON.parse(rawBigramStats) as Record<string, GuestBigramStatRow>)
+            : {};
           const now = Date.now();
           const dayMs = 24 * 60 * 60 * 1000;
-          const weakBigrams = Object.entries(bigramStats)
-            .map(([bigram, stat]) => {
-              const errorRate = stat.attempts > 0 ? stat.errors / stat.attempts : 0;
-              const hoursSinceLastSeen = (now - stat.lastSeen) / dayMs;
+          const weakBigrams = normalizeGuestBigramStats(
+            bigramStats,
+            bigramWindowSize
+          )
+            .filter((stat) => stat.errorRate > 0)
+            .map((stat) => {
+              const lastSeen =
+                typeof stat.lastSeen === "number"
+                  ? stat.lastSeen
+                  : new Date(stat.lastSeen ?? Date.now()).getTime();
+              const hoursSinceLastSeen = (now - lastSeen) / dayMs;
               const decayBoost = hoursSinceLastSeen > 1 ? (0.2 * Math.min(hoursSinceLastSeen, 7)) / 7 : 0;
               return {
-                bigram,
-                errorRate: Math.min(errorRate + decayBoost, 1),
+                bigram: stat.bigram,
+                errorRate: Math.min(stat.errorRate + decayBoost, 1),
               };
             })
             .sort((a, b) => b.errorRate - a.errorRate)
@@ -274,6 +326,7 @@ export default function TypingEngine({
           mode,
           charsPerPage: String(charsPerPage),
           targetedPracticeRatio: String(targetedPracticeRatio),
+          bigramWindowSize: String(bigramWindowSize),
           activeListId: selectedList,
         });
 
@@ -293,7 +346,7 @@ export default function TypingEngine({
     } finally {
       setIsLoading(false);
     }
-  }, [isGuest, mode, charsPerPage, targetedPracticeRatio, selectedList]);
+  }, [isGuest, mode, charsPerPage, targetedPracticeRatio, bigramWindowSize, selectedList]);
 
   const submitTextPage = useCallback(async () => {
     const targetText = state.words.join(" ");
@@ -303,14 +356,24 @@ export default function TypingEngine({
       if (isGuest) {
         const results = extractBigramResults(targetText, typedText);
         const aggregated = aggregateBigramResults(results);
+        const grouped = groupBigramResults(results);
         const rawStored = localStorage.getItem(GUEST_BIGRAMS_KEY);
-        const stored = rawStored ? (JSON.parse(rawStored) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
+        const stored = rawStored
+          ? (JSON.parse(rawStored) as Record<string, GuestBigramStatRow>)
+          : {};
         aggregated.forEach((entry, bigram) => {
-          const current = stored[bigram] ?? { attempts: 0, errors: 0, lastSeen: Date.now() };
+          const current = stored[bigram] ?? { attempts: 0, errors: 0, lastSeen: Date.now(), recentResults: [] };
           stored[bigram] = {
             attempts: current.attempts + entry.attempts,
             errors: current.errors + entry.errors,
             lastSeen: Date.now(),
+            recentResults: appendRecentBigramResults(
+              current.recentResults,
+              grouped.get(bigram) ?? [],
+              current.attempts,
+              current.errors,
+              MAX_BIGRAM_WINDOW_SIZE
+            ),
           };
         });
         localStorage.setItem(GUEST_BIGRAMS_KEY, JSON.stringify(stored));
@@ -454,6 +517,7 @@ export default function TypingEngine({
     const nextSettings = {
       charsPerPage,
       targetedPracticeRatio,
+      bigramWindowSize,
       mode,
       selectedList: isGuest ? "" : selectedList,
     };
@@ -461,6 +525,7 @@ export default function TypingEngine({
     if (
       nextSettings.charsPerPage === savedSettings.charsPerPage &&
       nextSettings.targetedPracticeRatio === savedSettings.targetedPracticeRatio &&
+      nextSettings.bigramWindowSize === savedSettings.bigramWindowSize &&
       nextSettings.mode === savedSettings.mode &&
       nextSettings.selectedList === savedSettings.selectedList
     ) {
@@ -478,6 +543,7 @@ export default function TypingEngine({
             JSON.stringify({
               charsPerPage: nextSettings.charsPerPage,
               targetedPracticeRatio: nextSettings.targetedPracticeRatio,
+              bigramWindowSize: nextSettings.bigramWindowSize,
               mode: nextSettings.mode,
             })
           );
@@ -492,6 +558,7 @@ export default function TypingEngine({
           body: JSON.stringify({
             charsPerPage: nextSettings.charsPerPage,
             targetedPracticeRatio: nextSettings.targetedPracticeRatio,
+            bigramWindowSize: nextSettings.bigramWindowSize,
             mode: nextSettings.mode,
             activeListId: nextSettings.selectedList || null,
           }),
@@ -515,7 +582,7 @@ export default function TypingEngine({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [charsPerPage, targetedPracticeRatio, mode, selectedList, savedSettings, isGuest]);
+  }, [charsPerPage, targetedPracticeRatio, bigramWindowSize, mode, selectedList, savedSettings, isGuest]);
 
   const handleTypingKeyDown = useCallback((e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void }) => {
     if (isLoading || isPageTransitioning || isPageComplete) return;
@@ -557,10 +624,16 @@ export default function TypingEngine({
         dispatch({ type: "RESET_COMMAND" });
       }
       return;
-    } else if (e.key === " ") {
+    }
+
+    if (e.key === " ") {
       e.preventDefault();
-      if (state.currentWordIdx < state.words.length - 1) dispatch({ type: "NEXT_WORD", timestamp });
-      else if (state.currentWordIdx === state.words.length - 1 && state.typed[state.currentWordIdx]?.length > 0) dispatch({ type: "NEXT_WORD", timestamp });
+      const currentWord = state.words[state.currentWordIdx] || "";
+      if (state.currentCharIdx >= currentWord.length && state.currentWordIdx < state.words.length) {
+        dispatch({ type: "NEXT_WORD", timestamp });
+      } else {
+        dispatch({ type: "TYPE_CHAR", char: e.key, timestamp });
+      }
       return;
     }
 
@@ -568,7 +641,7 @@ export default function TypingEngine({
       e.preventDefault();
       dispatch({ type: "TYPE_CHAR", char: e.key, timestamp });
     }
-  }, [isLoading, isPageTransitioning, isPageComplete, state.mode, state.currentWordIdx, state.words.length, state.typed, state.commandBuffer, state.exercise, submitKeymap, triggerTypingActivity]);
+  }, [isLoading, isPageTransitioning, isPageComplete, state.mode, state.currentCharIdx, state.currentWordIdx, state.words, state.commandBuffer, state.exercise, submitKeymap, triggerTypingActivity]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px) and (pointer: coarse)");
@@ -702,6 +775,18 @@ export default function TypingEngine({
                   className="w-full accent-emerald-500"
                 />
               </label>
+              <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
+                <span className="mb-1 block">Rolling weakness window: last {bigramWindowSize} attempts</span>
+                <input
+                  type="range"
+                  min={5}
+                  max={100}
+                  step={5}
+                  value={bigramWindowSize}
+                  onChange={(e) => setBigramWindowSize(Number(e.target.value))}
+                  className="w-full accent-emerald-500"
+                />
+              </label>
             </div>
             <div className="mt-4 flex items-center gap-3">
               <span className="text-sm text-zinc-400">
@@ -782,7 +867,7 @@ export default function TypingEngine({
       )}
 
       <p className="mt-4 text-center text-base text-zinc-600">
-        {state.mode === "KEYMAP" ? "Type command to match prompt • Backspace to correct" : "Start typing to begin • Space to advance • Backspace to correct"}
+        {state.mode === "KEYMAP" ? "Type command to match prompt • Backspace to correct" : "Start typing to begin • Space advances only after a finished word • The last character completes the test • Otherwise it counts as an error • Backspace to correct"}
       </p>
     </div>
   );

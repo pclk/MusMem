@@ -24,11 +24,12 @@ export default function WordDisplay({
             const typedWord = typed[wordIdx] || "";
             const typedChar = typedWord[charIdx];
             const isTyped = typedChar !== undefined;
+            const isCorrect = typedChar === char;
             const isCursorHere = showCursor && isCurrentWord && charIdx === currentCharIdx;
 
             let charClass = "text-white";
             if (wordIdx < currentWordIdx || (isCurrentWord && charIdx < currentCharIdx && isTyped)) {
-              charClass = "text-zinc-600";
+              charClass = isCorrect ? "text-zinc-600" : "text-red-500/80";
             }
 
             return (
@@ -44,7 +45,7 @@ export default function WordDisplay({
           })}
           {/* Show extra typed characters beyond word length */}
           {typed[wordIdx] && typed[wordIdx].length > word.length && (
-            <span className="text-zinc-600">
+            <span className="text-red-500/80">
               {typed[wordIdx].slice(word.length)}
             </span>
           )}

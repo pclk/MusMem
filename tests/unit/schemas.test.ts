@@ -171,6 +171,27 @@ describe("updateSettingsSchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("accepts bigramWindowSize within range", () => {
+    const result = updateSettingsSchema.safeParse({
+      bigramWindowSize: 20,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects bigramWindowSize below lower boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      bigramWindowSize: 4,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects bigramWindowSize above upper boundary", () => {
+    const result = updateSettingsSchema.safeParse({
+      bigramWindowSize: 101,
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("createWordListSchema", () => {

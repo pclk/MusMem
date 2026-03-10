@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendRecentBigramResults,
   formatBigramLabel,
   getBigramInsights,
   normalizeGuestBigramStats,
@@ -20,7 +21,7 @@ describe("normalizeGuestBigramStats", () => {
     expect(
       normalizeGuestBigramStats({
         th: { attempts: 10, errors: 3, lastSeen: 123 },
-      })
+      }, 20)
     ).toEqual([
       {
         bigram: "th",
@@ -28,8 +29,17 @@ describe("normalizeGuestBigramStats", () => {
         totalErrors: 3,
         errorRate: 0.3,
         lastSeen: 123,
+        recentResults: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1],
       },
     ]);
+  });
+});
+
+describe("appendRecentBigramResults", () => {
+  it("caps stored outcomes and appends latest attempts in order", () => {
+    expect(
+      appendRecentBigramResults([0, 1], [true, false, false], 2, 1, 4)
+    ).toEqual([1, 0, 1, 1]);
   });
 });
 
@@ -40,7 +50,7 @@ describe("getBigramInsights", () => {
       { bigram: "he", totalAttempts: 15, totalErrors: 0, errorRate: 0 },
       { bigram: "er", totalAttempts: 8, totalErrors: 1, errorRate: 0.125 },
       { bigram: "re", totalAttempts: 3, totalErrors: 3, errorRate: 1 },
-    ]);
+    ], { minAttempts: 5 });
 
     expect(insights.qualifiedCount).toBe(3);
     expect(insights.weak.map((entry) => entry.bigram)).toEqual(["th", "er", "he"]);

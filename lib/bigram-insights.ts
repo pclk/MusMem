@@ -1,4 +1,7 @@
 export const MIN_BIGRAM_ATTEMPTS = 1;
+export const DEFAULT_BIGRAM_WINDOW_SIZE = 20;
+export const MIN_BIGRAM_WINDOW_SIZE = 5;
+export const MAX_BIGRAM_WINDOW_SIZE = 100;
 export const DEFAULT_BIGRAM_INSIGHT_LIMIT = 4;
 
 export interface BigramStatRow {
@@ -7,28 +10,128 @@ export interface BigramStatRow {
   totalErrors: number;
   errorRate: number;
   lastSeen?: string | number | Date;
+  recentResults?: number[];
 }
 
 export interface GuestBigramStatRow {
   attempts: number;
   errors: number;
   lastSeen: number;
+  recentResults?: number[];
 }
 
 export function formatBigramLabel(bigram: string): string {
   return bigram.replace(/ /g, "\u2423").replace(/\t/g, "\\t");
 }
 
-export function normalizeGuestBigramStats(
-  stats: Record<string, GuestBigramStatRow>
+export function getStoredRecentResults(
+  recentResults: number[] | undefined,
+  totalAttempts: number,
+  totalErrors: number,
+  maxResults = MAX_BIGRAM_WINDOW_SIZE
+): number[] {
+  if (recentResults && recentResults.length > 0) {
+    return recentResults.slice(-maxResults);
+  }
+
+  if (totalAttempts <= 0) {
+    return [];
+  }
+
+  const cappedAttempts = Math.min(totalAttempts, maxResults);
+  const estimatedErrors = Math.round((totalErrors / totalAttempts) * cappedAttempts);
+
+  return [
+    ...Array.from({ length: Math.max(0, cappedAttempts - estimatedErrors) }, () => 0),
+    ...Array.from({ length: Math.max(0, estimatedErrors) }, () => 1),
+  ];
+}
+
+export function appendRecentBigramResults(
+  recentResults: number[] | undefined,
+  outcomes: boolean[],
+  totalAttempts = 0,
+  totalErrors = 0,
+  maxResults = MAX_BIGRAM_WINDOW_SIZE
+): number[] {
+  const existing = getStoredRecentResults(
+    recentResults,
+    totalAttempts,
+    totalErrors,
+    maxResults
+  );
+
+  return [
+    ...existing,
+    ...outcomes.map((correct) => (correct ? 0 : 1)),
+  ].slice(-maxResults);
+}
+
+export function calculateRollingErrorRate(
+  recentResults: number[] | undefined,
+  windowSize: number,
+  totalAttempts = 0,
+  totalErrors = 0
+): number {
+  const results = getStoredRecentResults(
+    recentResults,
+    totalAttempts,
+    totalErrors
+  ).slice(-windowSize);
+
+  if (results.length === 0) {
+    return 0;
+  }
+
+  return results.reduce((sum, result) => sum + result, 0) / results.length;
+}
+
+export function materializeBigramStats(
+  stats: Array<{
+    bigram: string;
+    totalAttempts: number;
+    totalErrors: number;
+    lastSeen?: string | number | Date;
+    recentResults?: number[];
+  }>,
+  windowSize: number
 ): BigramStatRow[] {
-  return Object.entries(stats).map(([bigram, stat]) => ({
-    bigram,
-    totalAttempts: stat.attempts,
-    totalErrors: stat.errors,
-    errorRate: stat.attempts > 0 ? stat.errors / stat.attempts : 0,
-    lastSeen: stat.lastSeen,
-  }));
+  return stats
+    .map((stat) => {
+      const recentResults = getStoredRecentResults(
+        stat.recentResults,
+        stat.totalAttempts,
+        stat.totalErrors
+      );
+
+      return {
+        ...stat,
+        recentResults,
+        errorRate: calculateRollingErrorRate(
+          recentResults,
+          windowSize,
+          stat.totalAttempts,
+          stat.totalErrors
+        ),
+      };
+    })
+    .sort(compareWeakBigrams);
+}
+
+export function normalizeGuestBigramStats(
+  stats: Record<string, GuestBigramStatRow>,
+  windowSize: number
+): BigramStatRow[] {
+  return materializeBigramStats(
+    Object.entries(stats).map(([bigram, stat]) => ({
+      bigram,
+      totalAttempts: stat.attempts,
+      totalErrors: stat.errors,
+      lastSeen: stat.lastSeen,
+      recentResults: stat.recentResults,
+    })),
+    windowSize
+  );
 }
 
 function compareWeakBigrams(a: BigramStatRow, b: BigramStatRow): number {

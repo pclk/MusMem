@@ -59,3 +59,21 @@ export function aggregateBigramResults(
 
   return map;
 }
+
+/**
+ * Group ordered bigram outcomes so rolling windows can append the latest attempts
+ * while preserving the sequence they occurred in the page.
+ */
+export function groupBigramResults(
+  results: { bigram: string; correct: boolean }[]
+): Map<string, boolean[]> {
+  const map = new Map<string, boolean[]>();
+
+  for (const { bigram, correct } of results) {
+    const existing = map.get(bigram) ?? [];
+    existing.push(correct);
+    map.set(bigram, existing);
+  }
+
+  return map;
+}

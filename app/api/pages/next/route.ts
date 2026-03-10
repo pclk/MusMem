@@ -6,6 +6,10 @@ import { WeakBigram } from "@/lib/algorithm/scoring";
 import englishWords from "@/lib/words/english-5k.json";
 import { selectKeymapExercise } from "@/lib/keymaps/select-exercise";
 import { PracticeMode } from "@/lib/schemas/mode";
+import {
+  DEFAULT_BIGRAM_WINDOW_SIZE,
+  materializeBigramStats,
+} from "@/lib/bigram-insights";
 
 export const dynamic = "force-dynamic";
 
@@ -45,12 +49,14 @@ export async function GET(request: Request) {
     const modeOverride = parseModeParam(url.searchParams.get("mode"));
     const charsPerPageOverride = parseIntegerParam(url.searchParams.get("charsPerPage"), 50, 500);
     const targetedPracticeRatioOverride = parseIntegerParam(url.searchParams.get("targetedPracticeRatio"), 0, 100);
+    const bigramWindowSizeOverride = parseIntegerParam(url.searchParams.get("bigramWindowSize"), 5, 100);
     const activeListIdOverride = url.searchParams.get("activeListId");
 
     if (
       modeOverride === null ||
       charsPerPageOverride === null ||
-      targetedPracticeRatioOverride === null
+      targetedPracticeRatioOverride === null ||
+      bigramWindowSizeOverride === null
     ) {
       return NextResponse.json({ error: "Invalid page override parameters" }, { status: 400 });
     }
@@ -61,6 +67,8 @@ export async function GET(request: Request) {
     });
 
     const mode = modeOverride ?? settings?.mode ?? "TEXT";
+    const bigramWindowSize =
+      bigramWindowSizeOverride ?? settings?.bigramWindowSize ?? DEFAULT_BIGRAM_WINDOW_SIZE;
 
     if (mode === "KEYMAP") {
       const lastSeen = await prisma.keymapCommandStat.findFirst({
@@ -104,20 +112,35 @@ export async function GET(request: Request) {
       where: {
         userId: session.userId,
       },
-      orderBy: { errorRate: "desc" },
-      take: 20,
+      select: {
+        bigram: true,
+        totalAttempts: true,
+        totalErrors: true,
+        recentResults: true,
+        lastSeen: true,
+      },
     });
 
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
-    const weakBigrams: WeakBigram[] = bigramStats.map((stat) => {
-      const hoursSinceLastSeen = (now - stat.lastSeen.getTime()) / dayMs;
-      const decayBoost = hoursSinceLastSeen > 1 ? (0.2 * Math.min(hoursSinceLastSeen, 7)) / 7 : 0;
-      return {
-        bigram: stat.bigram,
-        errorRate: Math.min(stat.errorRate + decayBoost, 1),
-      };
-    });
+    const weakBigrams: WeakBigram[] = materializeBigramStats(
+      bigramStats,
+      bigramWindowSize
+    )
+      .filter((stat) => stat.errorRate > 0)
+      .slice(0, 20)
+      .map((stat) => {
+        const lastSeen =
+          stat.lastSeen instanceof Date
+            ? stat.lastSeen.getTime()
+            : new Date(stat.lastSeen ?? Date.now()).getTime();
+        const hoursSinceLastSeen = (now - lastSeen) / dayMs;
+        const decayBoost = hoursSinceLastSeen > 1 ? (0.2 * Math.min(hoursSinceLastSeen, 7)) / 7 : 0;
+        return {
+          bigram: stat.bigram,
+          errorRate: Math.min(stat.errorRate + decayBoost, 1),
+        };
+      });
 
     const pageText = generatePage({
       words,

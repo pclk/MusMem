@@ -7,6 +7,7 @@ import HelpTooltip from "@/components/ui/HelpTooltip";
 interface SettingsFormProps {
   initialCharsPerPage: number;
   initialTargetedPracticeRatio: number;
+  initialBigramWindowSize: number;
   initialMode: "TEXT" | "KEYMAP";
   activeListId: string | null;
   wordLists: { id: string; name: string }[];
@@ -15,6 +16,7 @@ interface SettingsFormProps {
 export default function SettingsForm({
   initialCharsPerPage,
   initialTargetedPracticeRatio,
+  initialBigramWindowSize,
   initialMode,
   activeListId,
   wordLists,
@@ -24,6 +26,9 @@ export default function SettingsForm({
   const [charsPerPage, setCharsPerPage] = useState(initialCharsPerPage);
   const [targetedPracticeRatio, setTargetedPracticeRatio] = useState(
     initialTargetedPracticeRatio
+  );
+  const [bigramWindowSize, setBigramWindowSize] = useState(
+    initialBigramWindowSize
   );
   const [mode, setMode] = useState<"TEXT" | "KEYMAP">(initialMode);
   const [selectedList, setSelectedList] = useState<string>(
@@ -43,6 +48,7 @@ export default function SettingsForm({
         body: JSON.stringify({
           charsPerPage,
           targetedPracticeRatio,
+          bigramWindowSize,
           mode,
           activeListId: selectedList || null,
         }),
@@ -102,6 +108,25 @@ export default function SettingsForm({
         <div className="flex justify-between text-xs text-zinc-500 mt-1">
           <span>0% (all variety)</span>
           <span>100% (all targeted)</span>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
+          Bigram rolling window: last {bigramWindowSize} attempts
+        </label>
+        <input
+          type="range"
+          min={5}
+          max={100}
+          step={5}
+          value={bigramWindowSize}
+          onChange={(e) => setBigramWindowSize(Number(e.target.value))}
+          className="w-full accent-emerald-500"
+        />
+        <div className="flex justify-between text-xs text-zinc-500 mt-1">
+          <span>5 attempts</span>
+          <span>100 attempts</span>
         </div>
       </div>
 
