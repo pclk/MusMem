@@ -4,6 +4,7 @@ import { pageCompleteSchema } from "@/lib/schemas/page";
 import { practiceModeSchema } from "@/lib/schemas/mode";
 import { updateSettingsSchema } from "@/lib/schemas/settings";
 import { createWordListSchema } from "@/lib/schemas/wordlist";
+import { createKeymapListSchema } from "@/lib/schemas/keymap-list";
 
 describe("registerSchema", () => {
   it("accepts valid registration data", () => {
@@ -144,6 +145,13 @@ describe("updateSettingsSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts null keymapListId", () => {
+    const result = updateSettingsSchema.safeParse({
+      keymapListId: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("accepts targetedPracticeRatio at lower boundary", () => {
     const result = updateSettingsSchema.safeParse({
       targetedPracticeRatio: 0,
@@ -215,6 +223,47 @@ describe("createWordListSchema", () => {
     const result = createWordListSchema.safeParse({
       name: "My List",
       words: [],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("createKeymapListSchema", () => {
+  it("accepts a valid keymap list", () => {
+    const result = createKeymapListSchema.safeParse({
+      name: "Vim Basics",
+      exercises: [
+        { prompt: "change inside word", acceptedInputs: ["ciw"] },
+        { prompt: "open command palette", acceptedInputs: ["Ctrl+Shift+p"] },
+      ],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty exercise arrays", () => {
+    const result = createKeymapListSchema.safeParse({
+      name: "Empty",
+      exercises: [],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects exercises without commands", () => {
+    const result = createKeymapListSchema.safeParse({
+      name: "Broken",
+      exercises: [
+        { prompt: "change inside word", acceptedInputs: [] },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects malformed modifier commands", () => {
+    const result = createKeymapListSchema.safeParse({
+      name: "Broken",
+      exercises: [
+        { prompt: "missing key", acceptedInputs: ["Ctrl+Shift"] },
+      ],
     });
     expect(result.success).toBe(false);
   });

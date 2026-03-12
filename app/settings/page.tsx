@@ -5,6 +5,14 @@ import Link from "next/link";
 import Card from "@/components/ui/Card";
 import SettingsForm from "./components/SettingsForm";
 import WordListManager from "./components/WordListManager";
+import KeymapListManager from "./components/KeymapListManager";
+import { listKeymapLists } from "@/lib/keymap-lists";
+import { parseKeymapListEntries } from "@/lib/keymaps/custom-list";
+import { vimBasicExercises } from "@/lib/keymaps/vim-basic";
+import { listProjectKeymapLists } from "@/lib/keymaps/project-lists";
+import { getUserSettings } from "@/lib/user-settings";
+import englishWords from "@/lib/words/english-5k.json";
+import { listProjectWordLists } from "@/lib/wordlists/project-lists";
 
 export default async function SettingsPage() {
   const session = await getSession();
@@ -12,11 +20,8 @@ export default async function SettingsPage() {
     redirect("/login");
   }
 
-  const [settings, wordLists] = await Promise.all([
-    prisma.userSettings.findUnique({
-      where: { userId: session.userId },
-      include: { activeList: { select: { id: true, name: true } } },
-    }),
+  const [settings, wordLists, keymapLists, projectWordLists, projectKeymapLists] = await Promise.all([
+    getUserSettings(session.userId),
     prisma.wordList.findMany({
       where: { userId: session.userId },
       orderBy: { createdAt: "desc" },
@@ -27,15 +32,30 @@ export default async function SettingsPage() {
         createdAt: true,
       },
     }),
+    listKeymapLists(session.userId),
+    listProjectWordLists(),
+    listProjectKeymapLists(),
   ]);
 
   const wordListsForForm = wordLists.map((l) => ({ id: l.id, name: l.name }));
   const wordListsForManager = wordLists.map((l) => ({
     id: l.id,
     name: l.name,
+    words: l.words,
     wordCount: l.words.length,
     createdAt: l.createdAt.toISOString(),
   }));
+  const keymapListsForForm = keymapLists.map((l) => ({ id: l.id, name: l.name }));
+  const keymapListsForManager = keymapLists.map((list) => {
+    const exercises = parseKeymapListEntries(list.entries);
+    return {
+      id: list.id,
+      name: list.name,
+      exercises,
+      exerciseCount: exercises.length,
+      createdAt: list.createdAt.toISOString(),
+    };
+  });
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -65,16 +85,30 @@ export default async function SettingsPage() {
         <Card>
           <SettingsForm
             initialCharsPerPage={settings?.charsPerPage ?? 200}
-            activeListId={settings?.activeListId ?? null}
+            typingListId={settings?.activeListId ?? null}
+            keymapListId={settings?.keymapListId ?? null}
             initialTargetedPracticeRatio={settings?.targetedPracticeRatio ?? 60}
             initialBigramWindowSize={settings?.bigramWindowSize ?? 20}
             initialMode={settings?.mode ?? "TEXT"}
-            wordLists={wordListsForForm}
+            typingWordLists={wordListsForForm}
+            keymapLists={keymapListsForForm}
           />
         </Card>
 
         <Card>
-          <WordListManager wordLists={wordListsForManager} />
+          <WordListManager
+            wordLists={wordListsForManager}
+            defaultList={{ name: "Default English (5k words)", words: englishWords as string[] }}
+            projectWordLists={projectWordLists}
+          />
+        </Card>
+
+        <Card>
+          <KeymapListManager
+            keymapLists={keymapListsForManager}
+            defaultList={{ name: "Default keymap drills", exercises: vimBasicExercises }}
+            projectKeymapLists={projectKeymapLists}
+          />
         </Card>
 
         <Card>

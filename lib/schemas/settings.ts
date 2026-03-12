@@ -7,4 +7,5 @@ export const updateSettingsSchema = z.object({
   bigramWindowSize: z.number().int().min(5).max(100).optional(),
   mode: practiceModeSchema.optional(),
   activeListId: z.string().nullable().optional(),
+  keymapListId: z.string().nullable().optional(),
 });

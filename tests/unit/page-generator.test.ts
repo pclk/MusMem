@@ -52,6 +52,18 @@ describe("generatePage", () => {
     expect(result.trim()).toBe(result);
   });
 
+  it("can produce comma-separated pages for custom word lists", () => {
+    const result = generatePage({
+      words: sampleWords,
+      weakBigrams: [{ bigram: "at", errorRate: 0.5 }],
+      charsPerPage: 80,
+      separator: "comma",
+    });
+
+    expect(result).toContain(", ");
+    expect(result).not.toContain("  ");
+  });
+
   it("uses ratio 0 to favor variety words", () => {
     const words = ["the", "alpha", "bravo", "charlie", "delta"];
     const weakBigrams: WeakBigram[] = [

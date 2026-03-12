@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
-import prisma from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { updateWordListSchema } from "@/lib/schemas/wordlist";
+import {
+  deleteKeymapList,
+  findKeymapListById,
+  findKeymapListByName,
+  updateKeymapList,
+} from "@/lib/keymap-lists";
+import { updateKeymapListSchema } from "@/lib/schemas/keymap-list";
 
 export const dynamic = "force-dynamic";
+
 export async function PUT(
   request: Request,
   { params }: { params: { id: string } }
@@ -15,16 +21,14 @@ export async function PUT(
     }
 
     const { id } = params;
-    const wordList = await prisma.wordList.findFirst({
-      where: { id, userId: session.userId },
-    });
+    const keymapList = await findKeymapListById(session.userId, id);
 
-    if (!wordList) {
-      return NextResponse.json({ error: "Word list not found" }, { status: 404 });
+    if (!keymapList) {
+      return NextResponse.json({ error: "Keymap list not found" }, { status: 404 });
     }
 
     const body = await request.json();
-    const parsed = updateWordListSchema.safeParse(body);
+    const parsed = updateKeymapListSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -33,26 +37,21 @@ export async function PUT(
       );
     }
 
-    const { name, words } = parsed.data;
-    const existing = await prisma.wordList.findUnique({
-      where: { userId_name: { userId: session.userId, name } },
-    });
+    const { name, exercises } = parsed.data;
+    const existing = await findKeymapListByName(session.userId, name);
 
     if (existing && existing.id !== id) {
       return NextResponse.json(
-        { error: "A word list with this name already exists" },
+        { error: "A keymap list with this name already exists" },
         { status: 409 }
       );
     }
 
-    const updated = await prisma.wordList.update({
-      where: { id },
-      data: { name, words },
-    });
+    const updated = await updateKeymapList(session.userId, id, name, exercises);
 
     return NextResponse.json(updated);
   } catch (error) {
-    console.error("Word list update error:", error);
+    console.error("Keymap list update error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -68,20 +67,17 @@ export async function DELETE(
     }
 
     const { id } = params;
+    const keymapList = await findKeymapListById(session.userId, id);
 
-    const wordList = await prisma.wordList.findFirst({
-      where: { id, userId: session.userId },
-    });
-
-    if (!wordList) {
-      return NextResponse.json({ error: "Word list not found" }, { status: 404 });
+    if (!keymapList) {
+      return NextResponse.json({ error: "Keymap list not found" }, { status: 404 });
     }
 
-    await prisma.wordList.delete({ where: { id } });
+    await deleteKeymapList(session.userId, id);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Word list delete error:", error);
+    console.error("Keymap list delete error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

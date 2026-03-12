@@ -4,14 +4,30 @@ import { getSession } from "@/lib/session";
 import { generatePage } from "@/lib/algorithm/page-generator";
 import { WeakBigram } from "@/lib/algorithm/scoring";
 import englishWords from "@/lib/words/english-5k.json";
+import { findKeymapListById } from "@/lib/keymap-lists";
+import { buildKeymapExercisesFromList, parseKeymapListEntries } from "@/lib/keymaps/custom-list";
+import { ProjectKeymapList, listProjectKeymapLists } from "@/lib/keymaps/project-lists";
 import { selectKeymapExercise } from "@/lib/keymaps/select-exercise";
+import { KeymapExercise, vimBasicExercises } from "@/lib/keymaps/vim-basic";
 import { PracticeMode } from "@/lib/schemas/mode";
 import {
   DEFAULT_BIGRAM_WINDOW_SIZE,
   materializeBigramStats,
 } from "@/lib/bigram-insights";
+import { getUserSettings } from "@/lib/user-settings";
+import { ProjectWordList, listProjectWordLists } from "@/lib/wordlists/project-lists";
 
 export const dynamic = "force-dynamic";
+
+async function findProjectWordListById(id: string): Promise<ProjectWordList | null> {
+  const projectWordLists = await listProjectWordLists();
+  return projectWordLists.find((list) => list.id === id) ?? null;
+}
+
+async function findProjectKeymapListById(id: string): Promise<ProjectKeymapList | null> {
+  const projectKeymapLists = await listProjectKeymapLists();
+  return projectKeymapLists.find((list) => list.id === id) ?? null;
+}
 
 function parseIntegerParam(value: string | null, min: number, max: number) {
   if (value === null) {
@@ -51,6 +67,7 @@ export async function GET(request: Request) {
     const targetedPracticeRatioOverride = parseIntegerParam(url.searchParams.get("targetedPracticeRatio"), 0, 100);
     const bigramWindowSizeOverride = parseIntegerParam(url.searchParams.get("bigramWindowSize"), 5, 100);
     const activeListIdOverride = url.searchParams.get("activeListId");
+    const keymapListIdOverride = url.searchParams.get("keymapListId");
 
     if (
       modeOverride === null ||
@@ -61,26 +78,75 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Invalid page override parameters" }, { status: 400 });
     }
 
-    const settings = await prisma.userSettings.findUnique({
-      where: { userId: session.userId },
-      include: { activeList: true },
-    });
+    const settings = await getUserSettings(session.userId);
 
     const mode = modeOverride ?? settings?.mode ?? "TEXT";
     const bigramWindowSize =
       bigramWindowSizeOverride ?? settings?.bigramWindowSize ?? DEFAULT_BIGRAM_WINDOW_SIZE;
 
     if (mode === "KEYMAP") {
-      const lastSeen = await prisma.keymapCommandStat.findFirst({
-        where: { userId: session.userId },
-        orderBy: { lastSeen: "desc" },
-        select: { exerciseId: true },
-      });
-      const exercise = selectKeymapExercise(lastSeen?.exerciseId);
+      const keymapListId =
+        keymapListIdOverride === ""
+          ? null
+          : keymapListIdOverride ?? settings?.keymapListId ?? null;
+
+      let exercise: KeymapExercise;
+      let exercisePool: KeymapExercise[] = vimBasicExercises;
+      if (keymapListId) {
+        const projectKeymapList = await findProjectKeymapListById(keymapListId);
+        let resolvedExercises: KeymapExercise[];
+        let exerciseIdPrefix: string;
+
+        if (projectKeymapList) {
+          resolvedExercises = buildKeymapExercisesFromList(
+            projectKeymapList.id,
+            projectKeymapList.exercises
+          );
+          exerciseIdPrefix = `custom-${projectKeymapList.id}-`;
+        } else {
+          const keymapList = await findKeymapListById(session.userId, keymapListId);
+
+          if (!keymapList) {
+            return NextResponse.json({ error: "Keymap list not found" }, { status: 404 });
+          }
+
+          resolvedExercises = buildKeymapExercisesFromList(
+            keymapList.id,
+            parseKeymapListEntries(keymapList.entries)
+          );
+          exerciseIdPrefix = `custom-${keymapList.id}-`;
+        }
+
+        if (resolvedExercises.length === 0) {
+          return NextResponse.json({ error: "Keymap list is empty" }, { status: 400 });
+        }
+
+        const lastSeen = await prisma.keymapCommandStat.findFirst({
+          where: {
+            userId: session.userId,
+            exerciseId: { startsWith: exerciseIdPrefix },
+          },
+          orderBy: { lastSeen: "desc" },
+          select: { exerciseId: true },
+        });
+        const pool = resolvedExercises.length > 1
+          ? resolvedExercises.filter((item) => item.id !== lastSeen?.exerciseId)
+          : resolvedExercises;
+        exercisePool = resolvedExercises;
+        exercise = pool[Math.floor(Math.random() * pool.length)];
+      } else {
+        const lastSeen = await prisma.keymapCommandStat.findFirst({
+          where: { userId: session.userId },
+          orderBy: { lastSeen: "desc" },
+          select: { exerciseId: true },
+        });
+        exercise = selectKeymapExercise(lastSeen?.exerciseId);
+      }
 
       return NextResponse.json({
         mode,
         exercise,
+        exercisePool,
         text: exercise.prompt,
       });
     }
@@ -89,21 +155,34 @@ export async function GET(request: Request) {
     const targetedPracticeRatio = targetedPracticeRatioOverride ?? settings?.targetedPracticeRatio ?? 60;
 
     let words: string[];
+    let separator: "space" | "comma" = "space";
     if (activeListIdOverride) {
-      const activeList = await prisma.wordList.findFirst({
-        where: { id: activeListIdOverride, userId: session.userId },
-        select: { words: true },
-      });
+      const projectWordList = await findProjectWordListById(activeListIdOverride);
+      if (projectWordList) {
+        words = projectWordList.words;
+        separator = "comma";
+      } else {
+        const activeList = await prisma.wordList.findFirst({
+          where: { id: activeListIdOverride, userId: session.userId },
+          select: { words: true },
+        });
 
-      if (!activeList) {
-        return NextResponse.json({ error: "Word list not found" }, { status: 404 });
+        if (!activeList) {
+          return NextResponse.json({ error: "Word list not found" }, { status: 404 });
+        }
+
+        words = activeList.words;
+        separator = "comma";
       }
-
-      words = activeList.words;
     } else if (activeListIdOverride === "") {
       words = englishWords as string[];
-    } else if (settings?.activeList) {
-      words = settings.activeList.words;
+    } else if (settings?.activeListId) {
+      const activeList = await prisma.wordList.findFirst({
+        where: { id: settings.activeListId, userId: session.userId },
+        select: { words: true },
+      });
+      words = activeList?.words ?? (englishWords as string[]);
+      separator = activeList ? "comma" : "space";
     } else {
       words = englishWords as string[];
     }
@@ -147,6 +226,7 @@ export async function GET(request: Request) {
       weakBigrams,
       charsPerPage,
       targetedPracticeRatio,
+      separator,
     });
 
     return NextResponse.json({ mode, text: pageText });

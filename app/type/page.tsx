@@ -3,6 +3,10 @@ import { getSession } from "@/lib/session";
 import TypingEngine from "./components/TypingEngine";
 import Link from "next/link";
 import prisma from "@/lib/db";
+import { listKeymapLists } from "@/lib/keymap-lists";
+import { listProjectKeymapLists } from "@/lib/keymaps/project-lists";
+import { getUserSettings } from "@/lib/user-settings";
+import { listProjectWordLists } from "@/lib/wordlists/project-lists";
 
 export default async function TypePage() {
   const session = await getSession();
@@ -10,10 +14,8 @@ export default async function TypePage() {
     redirect("/login");
   }
 
-  const [settings, wordLists] = await Promise.all([
-    prisma.userSettings.findUnique({
-      where: { userId: session.userId },
-    }),
+  const [settings, wordLists, keymapLists, projectWordLists, projectKeymapLists] = await Promise.all([
+    getUserSettings(session.userId),
     prisma.wordList.findMany({
       where: { userId: session.userId },
       orderBy: { createdAt: "desc" },
@@ -22,7 +24,19 @@ export default async function TypePage() {
         name: true,
       },
     }),
+    listKeymapLists(session.userId),
+    listProjectWordLists(),
+    listProjectKeymapLists(),
   ]);
+
+  const availableWordLists = [
+    ...projectWordLists.map((list) => ({ id: list.id, name: `${list.name} (.txt)` })),
+    ...wordLists,
+  ];
+  const availableKeymapLists = [
+    ...projectKeymapLists.map((list) => ({ id: list.id, name: `${list.name} (.txt)` })),
+    ...keymapLists.map((list) => ({ id: list.id, name: list.name })),
+  ];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -49,7 +63,9 @@ export default async function TypePage() {
           initialBigramWindowSize={settings?.bigramWindowSize ?? 20}
           initialMode={settings?.mode ?? "TEXT"}
           activeListId={settings?.activeListId ?? null}
-          wordLists={wordLists}
+          keymapListId={settings?.keymapListId ?? null}
+          wordLists={availableWordLists}
+          keymapLists={availableKeymapLists}
         />
       </main>
     </div>

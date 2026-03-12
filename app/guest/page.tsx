@@ -25,7 +25,9 @@ export default function GuestPage() {
           initialBigramWindowSize={20}
           initialMode="TEXT"
           activeListId={null}
+          keymapListId={null}
           wordLists={[]}
+          keymapLists={[]}
           isGuest
         />
       </main>

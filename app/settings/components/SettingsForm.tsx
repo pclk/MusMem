@@ -9,8 +9,10 @@ interface SettingsFormProps {
   initialTargetedPracticeRatio: number;
   initialBigramWindowSize: number;
   initialMode: "TEXT" | "KEYMAP";
-  activeListId: string | null;
-  wordLists: { id: string; name: string }[];
+  typingListId: string | null;
+  keymapListId: string | null;
+  typingWordLists: { id: string; name: string }[];
+  keymapLists: { id: string; name: string }[];
 }
 
 export default function SettingsForm({
@@ -18,8 +20,10 @@ export default function SettingsForm({
   initialTargetedPracticeRatio,
   initialBigramWindowSize,
   initialMode,
-  activeListId,
-  wordLists,
+  typingListId,
+  keymapListId,
+  typingWordLists,
+  keymapLists,
 }: SettingsFormProps) {
   const targetedPracticeTooltip =
     "Controls how much of each page focuses on your weak patterns. Higher values include more words that match your weak bigrams; lower values include more random variety. If no weaknesses are recorded yet, pages are fully random.";
@@ -31,9 +35,8 @@ export default function SettingsForm({
     initialBigramWindowSize
   );
   const [mode, setMode] = useState<"TEXT" | "KEYMAP">(initialMode);
-  const [selectedList, setSelectedList] = useState<string>(
-    activeListId ?? ""
-  );
+  const [selectedList, setSelectedList] = useState<string>(typingListId ?? "");
+  const [selectedKeymapList, setSelectedKeymapList] = useState<string>(keymapListId ?? "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -51,6 +54,7 @@ export default function SettingsForm({
           bigramWindowSize,
           mode,
           activeListId: selectedList || null,
+          keymapListId: selectedKeymapList || null,
         }),
       });
 
@@ -146,7 +150,7 @@ export default function SettingsForm({
 
       <div>
         <label className="block text-sm font-medium text-zinc-300 mb-2">
-          Active word list
+          Typing word list
         </label>
         <select
           value={selectedList}
@@ -154,7 +158,25 @@ export default function SettingsForm({
           className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
         >
           <option value="">Default English (5k words)</option>
-          {wordLists.map((list) => (
+          {typingWordLists.map((list) => (
+            <option key={list.id} value={list.id}>
+              {list.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
+          Keymap list
+        </label>
+        <select
+          value={selectedKeymapList}
+          onChange={(e) => setSelectedKeymapList(e.target.value)}
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        >
+          <option value="">Default keymap drills</option>
+          {keymapLists.map((list) => (
             <option key={list.id} value={list.id}>
               {list.name}
             </option>

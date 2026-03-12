@@ -8,6 +8,7 @@ import BigramInsights from "./BigramInsights";
 import HelpTooltip from "@/components/ui/HelpTooltip";
 import { PracticeMode } from "@/lib/schemas/mode";
 import { KeymapExercise, vimBasicExercises } from "@/lib/keymaps/vim-basic";
+import { fillKeymapExerciseQueue } from "@/lib/keymaps/select-exercise";
 import {
   appendRecentBigramResults,
   BigramStatRow,
@@ -22,7 +23,16 @@ import {
   aggregateBigramResults,
   groupBigramResults,
 } from "@/lib/algorithm/bigram";
-import { calculateAccuracy, calculateWpm } from "@/lib/utils";
+import {
+  calculateAccuracy,
+  calculateRollingKeymapStats,
+  calculateWpm,
+  RollingKeymapAttempt,
+} from "@/lib/utils";
+import {
+  formatKeymapCommandFromEvent,
+  getActiveModifiersFromEvent,
+} from "@/lib/keymaps/commands";
 
 interface Keystroke {
   char: string;
@@ -48,13 +58,15 @@ interface TypingEngineProps {
   initialBigramWindowSize: number;
   initialMode: "TEXT" | "KEYMAP";
   activeListId: string | null;
+  keymapListId: string | null;
   wordLists: { id: string; name: string }[];
+  keymapLists: { id: string; name: string }[];
   isGuest?: boolean;
 }
 
 type TypingAction =
   | { type: "SET_TEXT_PAGE"; words: string[] }
-  | { type: "SET_KEYMAP_PAGE"; exercise: KeymapExercise }
+  | { type: "SET_KEYMAP_PAGE"; exercise: KeymapExercise; startedAt: number }
   | { type: "TYPE_CHAR"; char: string; timestamp: number; correct?: boolean }
   | { type: "BACKSPACE" }
   | { type: "NEXT_WORD"; timestamp: number }
@@ -65,7 +77,7 @@ function typingReducer(state: TypingState, action: TypingAction): TypingState {
     case "SET_TEXT_PAGE":
       return { ...state, mode: "TEXT", words: action.words, currentWordIdx: 0, currentCharIdx: 0, typed: [], keystrokes: [], exercise: null, commandBuffer: "", commandStartedAt: null };
     case "SET_KEYMAP_PAGE":
-      return { ...state, mode: "KEYMAP", words: [], currentWordIdx: 0, currentCharIdx: 0, typed: [], keystrokes: [], exercise: action.exercise, commandBuffer: "", commandStartedAt: null };
+      return { ...state, mode: "KEYMAP", words: [], currentWordIdx: 0, currentCharIdx: 0, typed: [], keystrokes: [], exercise: action.exercise, commandBuffer: "", commandStartedAt: action.startedAt };
     case "TYPE_CHAR": {
       const { char, timestamp } = action;
       if (state.mode === "KEYMAP") {
@@ -149,6 +161,11 @@ const GUEST_SETTINGS_KEY = "guest-settings";
 const GUEST_BIGRAMS_KEY = "guest-bigram-stats";
 const GUEST_KEYMAP_KEY = "guest-keymap-stats";
 const GUEST_SUMMARY_KEY = "guest-summary-stats";
+const KEYMAP_PREVIEW_COUNT = 3;
+const KEYMAP_QUEUE_SIZE = KEYMAP_PREVIEW_COUNT + 1;
+const KEYMAP_METRICS_WINDOW = 10;
+const TEXT_SETTINGS_REVEAL_DELAY_MS = 2000;
+const KEYMAP_SETTINGS_REVEAL_DELAY_MS = 10000;
 
 export default function TypingEngine({
   initialCharsPerPage,
@@ -157,6 +174,8 @@ export default function TypingEngine({
   initialMode,
   activeListId,
   wordLists,
+  keymapListId,
+  keymapLists,
   isGuest = false,
 }: TypingEngineProps) {
   const targetedPracticeTooltip =
@@ -167,7 +186,7 @@ export default function TypingEngine({
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isPageTransitioning, setIsPageTransitioning] = useState(false);
-  const [sessionStats, setSessionStats] = useState<{ accuracy: number; wpm: number; pagesCompleted: number } | null>(null);
+  const [sessionStats, setSessionStats] = useState<{ accuracy: number; wpm: number | null; kpm: number | null; pagesCompleted: number } | null>(null);
   const [fadeIn, setFadeIn] = useState(true);
   const [lastSubmission, setLastSubmission] = useState<{ correct: boolean; typedCommand: string; displayTypedCommand?: string; expectedInput?: string } | null>(null);
   const [isSettingsVisible, setIsSettingsVisible] = useState(true);
@@ -176,6 +195,7 @@ export default function TypingEngine({
   const [bigramWindowSize, setBigramWindowSize] = useState(initialBigramWindowSize);
   const [mode, setMode] = useState<"TEXT" | "KEYMAP">(initialMode);
   const [selectedList, setSelectedList] = useState<string>(activeListId ?? "");
+  const [selectedKeymapList, setSelectedKeymapList] = useState<string>(keymapListId ?? "");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("Changes apply automatically");
   const [bigramStats, setBigramStats] = useState<BigramStatRow[]>([]);
@@ -187,13 +207,41 @@ export default function TypingEngine({
     bigramWindowSize: initialBigramWindowSize,
     mode: initialMode,
     selectedList: activeListId ?? "",
+    selectedKeymapList: keymapListId ?? "",
   });
+  const [keymapQueue, setKeymapQueue] = useState<KeymapExercise[]>([]);
+  const keymapQueueRef = useRef<KeymapExercise[]>([]);
+  const keymapPoolRef = useRef<KeymapExercise[]>([]);
+  const currentKeymapExerciseIdRef = useRef<string | null>(null);
+  const recentKeymapAttemptsRef = useRef<RollingKeymapAttempt[]>([]);
   const inactivityTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const typingInputRef = useRef<HTMLInputElement>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileTypingFocused, setIsMobileTypingFocused] = useState(false);
+  const [activeModifiers, setActiveModifiers] = useState<string[]>([]);
   const isPageComplete = state.mode === "TEXT" && state.words.length > 0 && state.currentWordIdx >= state.words.length;
+  const isTextMode = mode === "TEXT";
+  const isKeymapMode = mode === "KEYMAP";
+
+  useEffect(() => {
+    keymapQueueRef.current = keymapQueue;
+  }, [keymapQueue]);
+
+  useEffect(() => {
+    currentKeymapExerciseIdRef.current = state.exercise?.id ?? null;
+  }, [state.exercise]);
+
+  useEffect(() => {
+    if (mode === "KEYMAP") {
+      recentKeymapAttemptsRef.current = [];
+      keymapQueueRef.current = [];
+      keymapPoolRef.current = [];
+      currentKeymapExerciseIdRef.current = null;
+      setKeymapQueue([]);
+    }
+    setActiveModifiers([]);
+  }, [mode, selectedKeymapList]);
 
   useEffect(() => {
     if (!isGuest) return;
@@ -205,26 +253,45 @@ export default function TypingEngine({
         targetedPracticeRatio?: number;
         bigramWindowSize?: number;
         mode?: "TEXT" | "KEYMAP";
+        keymapListId?: string;
       };
       const nextCharsPerPage = parsed.charsPerPage ?? initialCharsPerPage;
       const nextTargetedRatio = parsed.targetedPracticeRatio ?? initialTargetedPracticeRatio;
       const nextBigramWindowSize = parsed.bigramWindowSize ?? initialBigramWindowSize;
       const nextMode = parsed.mode ?? initialMode;
+      const nextKeymapListId = parsed.keymapListId ?? keymapListId ?? "";
       setCharsPerPage(nextCharsPerPage);
       setTargetedPracticeRatio(nextTargetedRatio);
       setBigramWindowSize(nextBigramWindowSize);
       setMode(nextMode);
+      setSelectedKeymapList(nextKeymapListId);
       setSavedSettings((current) => ({
         ...current,
         charsPerPage: nextCharsPerPage,
         targetedPracticeRatio: nextTargetedRatio,
         bigramWindowSize: nextBigramWindowSize,
         mode: nextMode,
+        selectedKeymapList: nextKeymapListId,
       }));
     } catch {
       localStorage.removeItem(GUEST_SETTINGS_KEY);
     }
-  }, [isGuest, initialCharsPerPage, initialTargetedPracticeRatio, initialBigramWindowSize, initialMode]);
+  }, [isGuest, initialCharsPerPage, initialTargetedPracticeRatio, initialBigramWindowSize, initialMode, keymapListId]);
+
+  const getGuestMostRecentKeymapId = useCallback(() => {
+    const rawKeymapStats = localStorage.getItem(GUEST_KEYMAP_KEY);
+    const keymapStats = rawKeymapStats
+      ? (JSON.parse(rawKeymapStats) as Record<string, { attempts: number; errors: number; lastSeen: number }>)
+      : {};
+    const sorted = Object.entries(keymapStats).sort((a, b) => b[1].lastSeen - a[1].lastSeen);
+    return sorted[0]?.[0] ?? null;
+  }, []);
+
+  const recordKeymapAttempt = useCallback((attempt: RollingKeymapAttempt) => {
+    const nextAttempts = [...recentKeymapAttemptsRef.current, attempt].slice(-KEYMAP_METRICS_WINDOW);
+    recentKeymapAttemptsRef.current = nextAttempts;
+    return calculateRollingKeymapStats(nextAttempts, KEYMAP_METRICS_WINDOW);
+  }, []);
 
   const triggerTypingActivity = useCallback(() => {
     setIsSettingsVisible(false);
@@ -233,8 +300,8 @@ export default function TypingEngine({
     }
     inactivityTimeoutRef.current = setTimeout(() => {
       setIsSettingsVisible(true);
-    }, 2000);
-  }, []);
+    }, state.mode === "KEYMAP" ? KEYMAP_SETTINGS_REVEAL_DELAY_MS : TEXT_SETTINGS_REVEAL_DELAY_MS);
+  }, [state.mode]);
 
   const loadBigramStats = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) {
@@ -275,18 +342,56 @@ export default function TypingEngine({
     setIsLoading(true);
     setFadeIn(false);
     try {
-      if (isGuest) {
-        if (mode === "KEYMAP") {
-          const rawKeymapStats = localStorage.getItem(GUEST_KEYMAP_KEY);
-          const keymapStats = rawKeymapStats ? (JSON.parse(rawKeymapStats) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
-          const sorted = Object.entries(keymapStats).sort((a, b) => b[1].lastSeen - a[1].lastSeen);
-          const lastExerciseId = sorted[0]?.[0];
-          const pool = vimBasicExercises.length > 1
-            ? vimBasicExercises.filter((exercise) => exercise.id !== lastExerciseId)
-            : vimBasicExercises;
-          const exercise = pool[Math.floor(Math.random() * pool.length)];
-          dispatch({ type: "SET_KEYMAP_PAGE", exercise });
+      if (mode === "KEYMAP") {
+        let nextQueue: KeymapExercise[] = [];
+        const existingQueue = keymapQueueRef.current;
+        const currentExerciseId = currentKeymapExerciseIdRef.current;
+
+        if (existingQueue.length > 1) {
+          nextQueue = fillKeymapExerciseQueue(
+            existingQueue.slice(1),
+            KEYMAP_QUEUE_SIZE,
+            existingQueue[0]?.id ?? currentExerciseId ?? null,
+            keymapPoolRef.current.length > 0 ? keymapPoolRef.current : existingQueue
+          );
+        } else if (isGuest) {
+          nextQueue = fillKeymapExerciseQueue(
+            [],
+            KEYMAP_QUEUE_SIZE,
+            existingQueue[0]?.id ?? currentExerciseId ?? getGuestMostRecentKeymapId()
+          );
         } else {
+          const params = new URLSearchParams({
+            mode,
+            charsPerPage: String(charsPerPage),
+            targetedPracticeRatio: String(targetedPracticeRatio),
+            bigramWindowSize: String(bigramWindowSize),
+            activeListId: selectedList,
+            keymapListId: selectedKeymapList,
+          });
+          const res = await fetch(`/api/pages/next?${params.toString()}`, { cache: "no-store" });
+          if (!res.ok) throw new Error("Failed to fetch page");
+          const data = await res.json();
+          const seedExercise = (data.exercise ?? vimBasicExercises[0]) as KeymapExercise;
+          const fetchedPool = Array.isArray(data.exercisePool)
+            ? (data.exercisePool as KeymapExercise[])
+            : [seedExercise];
+          keymapPoolRef.current = fetchedPool.length > 0 ? fetchedPool : [seedExercise];
+          nextQueue = fillKeymapExerciseQueue(
+            [seedExercise],
+            KEYMAP_QUEUE_SIZE,
+            seedExercise.id,
+            keymapPoolRef.current
+          );
+        }
+
+        setKeymapQueue(nextQueue);
+        keymapQueueRef.current = nextQueue;
+        if (nextQueue[0]) {
+          currentKeymapExerciseIdRef.current = nextQueue[0].id;
+          dispatch({ type: "SET_KEYMAP_PAGE", exercise: nextQueue[0], startedAt: Date.now() });
+        }
+      } else if (isGuest) {
           const rawBigramStats = localStorage.getItem(GUEST_BIGRAMS_KEY);
           const bigramStats = rawBigramStats
             ? (JSON.parse(rawBigramStats) as Record<string, GuestBigramStatRow>)
@@ -320,7 +425,6 @@ export default function TypingEngine({
             targetedPracticeRatio,
           });
           dispatch({ type: "SET_TEXT_PAGE", words: text.split(" ").filter((w) => w.length > 0) });
-        }
       } else {
         const params = new URLSearchParams({
           mode,
@@ -328,17 +432,14 @@ export default function TypingEngine({
           targetedPracticeRatio: String(targetedPracticeRatio),
           bigramWindowSize: String(bigramWindowSize),
           activeListId: selectedList,
+          keymapListId: selectedKeymapList,
         });
 
         const res = await fetch(`/api/pages/next?${params.toString()}`, { cache: "no-store" });
         if (!res.ok) throw new Error("Failed to fetch page");
         const data = await res.json();
-        if (data.mode === "KEYMAP" && data.exercise) {
-          dispatch({ type: "SET_KEYMAP_PAGE", exercise: data.exercise });
-        } else {
-          const words = data.text.split(" ").filter((w: string) => w.length > 0);
-          dispatch({ type: "SET_TEXT_PAGE", words });
-        }
+        const words = data.text.split(" ").filter((w: string) => w.length > 0);
+        dispatch({ type: "SET_TEXT_PAGE", words });
       }
       setTimeout(() => setFadeIn(true), 50);
     } catch (error) {
@@ -346,7 +447,16 @@ export default function TypingEngine({
     } finally {
       setIsLoading(false);
     }
-  }, [isGuest, mode, charsPerPage, targetedPracticeRatio, bigramWindowSize, selectedList]);
+  }, [
+    bigramWindowSize,
+    charsPerPage,
+    getGuestMostRecentKeymapId,
+    isGuest,
+    mode,
+    selectedList,
+    selectedKeymapList,
+    targetedPracticeRatio,
+  ]);
 
   const submitTextPage = useCallback(async () => {
     const targetText = state.words.join(" ");
@@ -379,13 +489,14 @@ export default function TypingEngine({
         localStorage.setItem(GUEST_BIGRAMS_KEY, JSON.stringify(stored));
 
         const correctChars = state.keystrokes.filter((k) => k.correct).length;
-        const totalChars = targetText.length;
-        const accuracy = calculateAccuracy(correctChars, totalChars);
+        const accuracyAttemptCount = state.keystrokes.length;
+        const scoredChars = targetText.length;
+        const accuracy = calculateAccuracy(correctChars, accuracyAttemptCount);
 
         let wpm = 0;
         if (state.keystrokes.length >= 2) {
           const duration = state.keystrokes[state.keystrokes.length - 1].timestamp - state.keystrokes[0].timestamp;
-          wpm = calculateWpm(totalChars, duration);
+          wpm = calculateWpm(scoredChars, duration);
         }
 
         const rawSummary = localStorage.getItem(GUEST_SUMMARY_KEY);
@@ -394,11 +505,11 @@ export default function TypingEngine({
           : { pagesCompleted: 0, charsTyped: 0 };
         const nextSummary = {
           pagesCompleted: summary.pagesCompleted + 1,
-          charsTyped: summary.charsTyped + totalChars,
+          charsTyped: summary.charsTyped + scoredChars,
         };
         localStorage.setItem(GUEST_SUMMARY_KEY, JSON.stringify(nextSummary));
 
-        setSessionStats({ accuracy, wpm, pagesCompleted: nextSummary.pagesCompleted });
+        setSessionStats({ accuracy, wpm, kpm: null, pagesCompleted: nextSummary.pagesCompleted });
       } else {
         const res = await fetch("/api/pages/complete", {
           method: "POST",
@@ -407,7 +518,7 @@ export default function TypingEngine({
         });
         if (res.ok) {
           const data = await res.json();
-          setSessionStats({ accuracy: data.accuracy, wpm: data.wpm, pagesCompleted: data.pagesCompleted });
+          setSessionStats({ accuracy: data.accuracy, wpm: data.wpm, kpm: data.kpm ?? null, pagesCompleted: data.pagesCompleted });
         }
       }
     } catch (error) {
@@ -431,6 +542,7 @@ export default function TypingEngine({
       expectedInput: options?.expectedInput,
     });
     try {
+      const rollingStats = recordKeymapAttempt({ correct, latencyMs });
       if (isGuest) {
         const rawStored = localStorage.getItem(GUEST_KEYMAP_KEY);
         const stored = rawStored ? (JSON.parse(rawStored) as Record<string, { attempts: number; errors: number; lastSeen: number }>) : {};
@@ -442,11 +554,6 @@ export default function TypingEngine({
         };
         localStorage.setItem(GUEST_KEYMAP_KEY, JSON.stringify(stored));
 
-        const correctChars = state.keystrokes.filter((k) => k.correct).length;
-        const totalChars = state.keystrokes.length;
-        const accuracy = calculateAccuracy(correctChars, totalChars);
-        const wpm = latencyMs > 0 ? calculateWpm(totalChars, latencyMs) : 0;
-
         const rawSummary = localStorage.getItem(GUEST_SUMMARY_KEY);
         const summary = rawSummary
           ? (JSON.parse(rawSummary) as { pagesCompleted: number; charsTyped: number })
@@ -457,7 +564,12 @@ export default function TypingEngine({
         };
         localStorage.setItem(GUEST_SUMMARY_KEY, JSON.stringify(nextSummary));
 
-        setSessionStats({ accuracy, wpm, pagesCompleted: nextSummary.pagesCompleted });
+        setSessionStats({
+          accuracy: rollingStats.accuracy ?? 100,
+          wpm: null,
+          kpm: rollingStats.kpm,
+          pagesCompleted: nextSummary.pagesCompleted,
+        });
       } else {
         const res = await fetch("/api/pages/complete", {
           method: "POST",
@@ -475,14 +587,19 @@ export default function TypingEngine({
         });
         if (res.ok) {
           const data = await res.json();
-          setSessionStats({ accuracy: data.accuracy, wpm: data.wpm, pagesCompleted: data.pagesCompleted });
+          setSessionStats({
+            accuracy: rollingStats.accuracy ?? data.accuracy,
+            wpm: null,
+            kpm: rollingStats.kpm,
+            pagesCompleted: data.pagesCompleted,
+          });
         }
       }
     } catch (error) {
       console.error("Failed to submit keymap:", error);
     }
     await fetchNextPage();
-  }, [state.exercise, state.commandBuffer, state.commandStartedAt, state.keystrokes, fetchNextPage, isGuest]);
+  }, [state.exercise, state.commandBuffer, state.commandStartedAt, state.keystrokes, fetchNextPage, isGuest, recordKeymapAttempt]);
 
   const handleResetBigramInsights = useCallback(async () => {
     setIsResettingBigrams(true);
@@ -520,6 +637,7 @@ export default function TypingEngine({
       bigramWindowSize,
       mode,
       selectedList: isGuest ? "" : selectedList,
+      selectedKeymapList: isGuest ? "" : selectedKeymapList,
     };
 
     if (
@@ -527,7 +645,8 @@ export default function TypingEngine({
       nextSettings.targetedPracticeRatio === savedSettings.targetedPracticeRatio &&
       nextSettings.bigramWindowSize === savedSettings.bigramWindowSize &&
       nextSettings.mode === savedSettings.mode &&
-      nextSettings.selectedList === savedSettings.selectedList
+      nextSettings.selectedList === savedSettings.selectedList &&
+      nextSettings.selectedKeymapList === savedSettings.selectedKeymapList
     ) {
       return;
     }
@@ -545,10 +664,23 @@ export default function TypingEngine({
               targetedPracticeRatio: nextSettings.targetedPracticeRatio,
               bigramWindowSize: nextSettings.bigramWindowSize,
               mode: nextSettings.mode,
+              keymapListId: nextSettings.selectedKeymapList,
             })
           );
           setSavedSettings(nextSettings);
           setSettingsMessage("Changes apply automatically");
+          return;
+        }
+
+        if (nextSettings.selectedList.startsWith("project-")) {
+          setSavedSettings(nextSettings);
+          setSettingsMessage("Project .txt lists apply for this session only");
+          return;
+        }
+
+        if (nextSettings.selectedKeymapList.startsWith("project-keymap-")) {
+          setSavedSettings(nextSettings);
+          setSettingsMessage("Project .txt keymap lists apply for this session only");
           return;
         }
 
@@ -561,6 +693,7 @@ export default function TypingEngine({
             bigramWindowSize: nextSettings.bigramWindowSize,
             mode: nextSettings.mode,
             activeListId: nextSettings.selectedList || null,
+            keymapListId: nextSettings.selectedKeymapList || null,
           }),
         });
 
@@ -582,14 +715,14 @@ export default function TypingEngine({
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [charsPerPage, targetedPracticeRatio, bigramWindowSize, mode, selectedList, savedSettings, isGuest]);
+  }, [charsPerPage, targetedPracticeRatio, bigramWindowSize, mode, selectedList, selectedKeymapList, savedSettings, isGuest]);
 
-  const handleTypingKeyDown = useCallback((e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; preventDefault: () => void }) => {
+  const handleTypingKeyDown = useCallback((e: { key: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean; preventDefault: () => void }) => {
     if (isLoading || isPageTransitioning || isPageComplete) return;
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     const timestamp = Date.now();
     triggerTypingActivity();
+    setActiveModifiers(getActiveModifiersFromEvent(e));
 
     if (e.key === "Backspace") {
       e.preventDefault();
@@ -598,7 +731,36 @@ export default function TypingEngine({
     }
 
     if (state.mode === "KEYMAP") {
-      if (e.key.length === 1 && state.exercise) {
+      if (!state.exercise) {
+        return;
+      }
+
+      let formattedKeyCommand: string | null = null;
+      try {
+        formattedKeyCommand = formatKeymapCommandFromEvent(e);
+      } catch {
+        formattedKeyCommand = null;
+      }
+      const isModifiedCommand =
+        formattedKeyCommand !== null &&
+        (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.key.length > 1);
+
+      if (isModifiedCommand && formattedKeyCommand) {
+        e.preventDefault();
+        const expectedInput = state.exercise.acceptedInputs[0] ?? "";
+        const correct = state.exercise.acceptedInputs.includes(formattedKeyCommand);
+        dispatch({ type: "TYPE_CHAR", char: formattedKeyCommand, timestamp, correct });
+        submitKeymap({
+          typedCommand: formattedKeyCommand,
+          correct,
+          displayTypedCommand: formattedKeyCommand,
+          expectedInput,
+        });
+        dispatch({ type: "RESET_COMMAND" });
+        return;
+      }
+
+      if (e.key.length === 1) {
         e.preventDefault();
         const typedCommand = `${state.commandBuffer}${e.key}`;
         const acceptedInputs = state.exercise.acceptedInputs;
@@ -643,6 +805,10 @@ export default function TypingEngine({
     }
   }, [isLoading, isPageTransitioning, isPageComplete, state.mode, state.currentCharIdx, state.currentWordIdx, state.words, state.commandBuffer, state.exercise, submitKeymap, triggerTypingActivity]);
 
+  const handleTypingKeyUp = useCallback((e: { ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }) => {
+    setActiveModifiers(getActiveModifiersFromEvent(e));
+  }, []);
+
   useEffect(() => {
     const mediaQuery = window.matchMedia("(max-width: 768px) and (pointer: coarse)");
     const updateViewportMode = () => {
@@ -658,14 +824,20 @@ export default function TypingEngine({
     if (isMobileViewport) return;
 
     const handleDocumentKeyDown = (e: KeyboardEvent) => handleTypingKeyDown(e);
+    const handleDocumentKeyUp = (e: KeyboardEvent) => handleTypingKeyUp(e);
     document.addEventListener("keydown", handleDocumentKeyDown);
-    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
-  }, [isMobileViewport, handleTypingKeyDown]);
+    document.addEventListener("keyup", handleDocumentKeyUp);
+    return () => {
+      document.removeEventListener("keydown", handleDocumentKeyDown);
+      document.removeEventListener("keyup", handleDocumentKeyUp);
+    };
+  }, [isMobileViewport, handleTypingKeyDown, handleTypingKeyUp]);
 
   useEffect(() => {
     if (!isMobileViewport) {
       containerRef.current?.focus();
       setIsMobileTypingFocused(false);
+      setActiveModifiers([]);
       return;
     }
 
@@ -687,13 +859,28 @@ export default function TypingEngine({
 
   return (
     <div ref={containerRef} className="w-full max-w-4xl mx-auto outline-none" tabIndex={0}>
-      {sessionStats && (
-        <div className="flex gap-6 mb-6 text-sm text-zinc-400">
-          <span>WPM: <span className="text-emerald-400 font-medium">{sessionStats.wpm ?? "—"}</span></span>
-          <span>Accuracy: <span className="text-emerald-400 font-medium">{sessionStats.accuracy?.toFixed(1) ?? "—"}%</span></span>
-          <span>Pages: <span className="text-emerald-400 font-medium">{sessionStats.pagesCompleted}</span></span>
-        </div>
-      )}
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        {sessionStats ? (
+          <div className="flex flex-wrap gap-6 text-sm text-zinc-400">
+            {isKeymapMode ? (
+              <span>KPM (last 10): <span className="text-emerald-400 font-medium">{sessionStats.kpm?.toFixed(1) ?? "—"}</span></span>
+            ) : (
+              <span>WPM: <span className="text-emerald-400 font-medium">{sessionStats.wpm ?? "—"}</span></span>
+            )}
+            <span>{isKeymapMode ? "Accuracy (last 10)" : "Accuracy"}: <span className="text-emerald-400 font-medium">{sessionStats.accuracy?.toFixed(1) ?? "—"}%</span></span>
+            <span>{isKeymapMode ? "Drills" : "Pages"}: <span className="text-emerald-400 font-medium">{sessionStats.pagesCompleted}</span></span>
+          </div>
+        ) : (
+          <div />
+        )}
+        <button
+          type="button"
+          onClick={() => setIsSettingsVisible((current) => !current)}
+          className="rounded-full border border-zinc-700 px-4 py-2 text-xs font-medium uppercase tracking-[0.24em] text-zinc-300 transition-colors hover:border-zinc-500 hover:text-zinc-100"
+        >
+          {isSettingsVisible ? "Hide Settings" : "Show Settings"}
+        </button>
+      </div>
 
       <div className={`overflow-hidden transition-all duration-300 ${isSettingsVisible ? "max-h-[1600px] opacity-100 mb-5" : "max-h-0 opacity-0 mb-0"}`}>
         <div className="space-y-3">
@@ -728,9 +915,9 @@ export default function TypingEngine({
                   <option value="KEYMAP">Keymap drills</option>
                 </select>
               </label>
-              {!isGuest && (
+              {!isGuest && isTextMode && (
                 <label className="text-sm text-zinc-300">
-                  <span className="mb-1 block">Active word list</span>
+                  <span className="mb-1 block">Typing word list</span>
                   <select
                     value={selectedList}
                     onChange={(e) => setSelectedList(e.target.value)}
@@ -745,48 +932,71 @@ export default function TypingEngine({
                   </select>
                 </label>
               )}
-              <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
-                <span className="mb-1 block">Characters per page: {charsPerPage}</span>
-                <input
-                  type="range"
-                  min={50}
-                  max={500}
-                  step={10}
-                  value={charsPerPage}
-                  onChange={(e) => setCharsPerPage(Number(e.target.value))}
-                  className="w-full accent-emerald-500"
-                />
-              </label>
-              <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
-                <span className="mb-1 block">
-                  Targeted practice: {targetedPracticeRatio}%{" "}
-                  <HelpTooltip
-                    content={targetedPracticeTooltip}
-                    label="Targeted practice help"
+              {!isGuest && isKeymapMode && (
+                <label className="text-sm text-zinc-300">
+                  <span className="mb-1 block">Keymap list</span>
+                  <select
+                    value={selectedKeymapList}
+                    onChange={(e) => setSelectedKeymapList(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">Default keymap drills</option>
+                    {keymapLists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {isTextMode && (
+                <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
+                  <span className="mb-1 block">Characters per page: {charsPerPage}</span>
+                  <input
+                    type="range"
+                    min={50}
+                    max={500}
+                    step={10}
+                    value={charsPerPage}
+                    onChange={(e) => setCharsPerPage(Number(e.target.value))}
+                    className="w-full accent-emerald-500"
                   />
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={targetedPracticeRatio}
-                  onChange={(e) => setTargetedPracticeRatio(Number(e.target.value))}
-                  className="w-full accent-emerald-500"
-                />
-              </label>
-              <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
-                <span className="mb-1 block">Rolling weakness window: last {bigramWindowSize} attempts</span>
-                <input
-                  type="range"
-                  min={5}
-                  max={100}
-                  step={5}
-                  value={bigramWindowSize}
-                  onChange={(e) => setBigramWindowSize(Number(e.target.value))}
-                  className="w-full accent-emerald-500"
-                />
-              </label>
+                </label>
+              )}
+              {isTextMode && (
+                <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
+                  <span className="mb-1 block">
+                    Targeted practice: {targetedPracticeRatio}%{" "}
+                    <HelpTooltip
+                      content={targetedPracticeTooltip}
+                      label="Targeted practice help"
+                    />
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={targetedPracticeRatio}
+                    onChange={(e) => setTargetedPracticeRatio(Number(e.target.value))}
+                    className="w-full accent-emerald-500"
+                  />
+                </label>
+              )}
+              {isTextMode && (
+                <label className="rounded-2xl border border-white/6 bg-black/15 p-4 text-sm text-zinc-300">
+                  <span className="mb-1 block">Rolling weakness window: last {bigramWindowSize} attempts</span>
+                  <input
+                    type="range"
+                    min={5}
+                    max={100}
+                    step={5}
+                    value={bigramWindowSize}
+                    onChange={(e) => setBigramWindowSize(Number(e.target.value))}
+                    className="w-full accent-emerald-500"
+                  />
+                </label>
+              )}
             </div>
             <div className="mt-4 flex items-center gap-3">
               <span className="text-sm text-zinc-400">
@@ -816,6 +1026,8 @@ export default function TypingEngine({
               prompt={state.exercise.prompt}
               typedCommand={state.commandBuffer}
               acceptedInputs={state.exercise.acceptedInputs}
+              upcomingPrompts={keymapQueue.slice(1, KEYMAP_QUEUE_SIZE).map((exercise) => exercise.prompt)}
+              activeModifiers={activeModifiers}
               lastSubmission={lastSubmission}
               isFocused={!isMobileViewport || isMobileTypingFocused}
             />
@@ -855,7 +1067,11 @@ export default function TypingEngine({
             enterKeyHint="done"
             aria-label="Hidden typing input"
             onKeyDown={handleTypingKeyDown}
-            onBlur={() => setIsMobileTypingFocused(false)}
+            onKeyUp={handleTypingKeyUp}
+            onBlur={() => {
+              setIsMobileTypingFocused(false);
+              setActiveModifiers([]);
+            }}
             onFocus={() => setIsMobileTypingFocused(true)}
             onChange={() => undefined}
             className="pointer-events-none absolute h-0 w-0 opacity-0"

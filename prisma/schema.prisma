@@ -21,6 +21,7 @@ model User {
   bigramStats BigramStat[]
   keymapCommandStats KeymapCommandStat[]
   wordLists   WordList[]
+  keymapLists KeymapList[]
 }
 
 enum PracticeMode {
@@ -38,6 +39,8 @@ model UserSettings {
   mode         PracticeMode @default(TEXT)
   activeListId String?
   activeList   WordList?  @relation(fields: [activeListId], references: [id], onDelete: SetNull)
+  keymapListId String?
+  keymapList   KeymapList? @relation("ActiveKeymapList", fields: [keymapListId], references: [id], onDelete: SetNull)
 }
 
 model KeymapCommandStat {
@@ -93,6 +96,19 @@ model WordList {
   createdAt DateTime @default(now())
 
   activeFor UserSettings[]
+
+  @@unique([userId, name])
+}
+
+model KeymapList {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  entries   Json
+  createdAt DateTime @default(now())
+
+  activeFor UserSettings[] @relation("ActiveKeymapList")
 
   @@unique([userId, name])
 }

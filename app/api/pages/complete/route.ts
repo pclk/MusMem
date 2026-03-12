@@ -37,16 +37,18 @@ export async function POST(request: Request) {
     const payload = parsed.data;
 
     const correctChars = payload.keystrokeTimings.filter((k) => k.correct).length;
-    const totalChars =
+    const accuracyAttemptCount = payload.keystrokeTimings.length;
+    const scoredChars =
       payload.mode === "TEXT" ? payload.targetText.length : payload.keystrokeTimings.length;
-    const accuracy = calculateAccuracy(correctChars, totalChars);
+    const accuracy = calculateAccuracy(correctChars, accuracyAttemptCount);
+    const kpm = null;
 
     let wpm: number | null = null;
-    if (payload.keystrokeTimings.length >= 2) {
+    if (payload.mode === "TEXT" && payload.keystrokeTimings.length >= 2) {
       const duration =
         payload.keystrokeTimings[payload.keystrokeTimings.length - 1].timestamp -
         payload.keystrokeTimings[0].timestamp;
-      wpm = calculateWpm(totalChars, duration);
+      wpm = calculateWpm(scoredChars, duration);
     }
 
     if (payload.mode === "TEXT") {
@@ -171,21 +173,23 @@ export async function POST(request: Request) {
         data: {
           userId: session.userId,
           pagesCompleted: 1,
-          charsTyped: totalChars,
+          charsTyped: scoredChars,
           accuracy,
           wpm,
         },
       });
     } else {
       const newPagesCompleted = typingSession.pagesCompleted + 1;
-      const newCharsTyped = typingSession.charsTyped + totalChars;
+      const newCharsTyped = typingSession.charsTyped + scoredChars;
       const newAccuracy = typingSession.accuracy
         ? (typingSession.accuracy * typingSession.pagesCompleted + accuracy) / newPagesCompleted
         : accuracy;
       const newWpm =
-        typingSession.wpm && wpm
-          ? (typingSession.wpm * typingSession.pagesCompleted + wpm) / newPagesCompleted
-          : wpm;
+        wpm === null
+          ? typingSession.wpm
+          : typingSession.wpm !== null
+            ? (typingSession.wpm * typingSession.pagesCompleted + wpm) / newPagesCompleted
+            : wpm;
 
       typingSession = await prisma.typingSession.update({
         where: { id: typingSession.id },
@@ -202,6 +206,7 @@ export async function POST(request: Request) {
       mode: payload.mode,
       accuracy,
       wpm,
+      kpm,
       pagesCompleted: typingSession.pagesCompleted,
       charsTyped: typingSession.charsTyped,
       ...(payload.mode === "KEYMAP" && { correct: payload.correct, exerciseId: payload.exerciseId }),

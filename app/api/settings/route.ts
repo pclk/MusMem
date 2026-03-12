@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { getSession } from "@/lib/session";
+import { findKeymapListById } from "@/lib/keymap-lists";
+import { listProjectKeymapLists } from "@/lib/keymaps/project-lists";
 import { updateSettingsSchema } from "@/lib/schemas/settings";
+import { getUserSettings, updateUserSettings } from "@/lib/user-settings";
+import { listProjectWordLists } from "@/lib/wordlists/project-lists";
 
 export const dynamic = "force-dynamic";
 export async function GET() {
@@ -11,10 +15,7 @@ export async function GET() {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const settings = await prisma.userSettings.findUnique({
-      where: { userId: session.userId },
-      include: { activeList: { select: { id: true, name: true } } },
-    });
+    const settings = await getUserSettings(session.userId);
 
     if (!settings) {
       return NextResponse.json({ error: "Settings not found" }, { status: 404 });
@@ -44,10 +45,26 @@ export async function PUT(request: Request) {
       );
     }
 
-    const { charsPerPage, targetedPracticeRatio, bigramWindowSize, mode, activeListId } = parsed.data;
+    const {
+      charsPerPage,
+      targetedPracticeRatio,
+      bigramWindowSize,
+      mode,
+      activeListId,
+      keymapListId,
+    } = parsed.data;
+    const projectWordListIds = new Set((await listProjectWordLists()).map((list) => list.id));
+    const projectKeymapListIds = new Set((await listProjectKeymapLists()).map((list) => list.id));
 
     // Validate activeListId belongs to user if provided
     if (activeListId) {
+      if (projectWordListIds.has(activeListId)) {
+        return NextResponse.json(
+          { error: "Project .txt word lists are session-only. Import them into a custom list to save them." },
+          { status: 400 }
+        );
+      }
+
       const list = await prisma.wordList.findFirst({
         where: { id: activeListId, userId: session.userId },
       });
@@ -56,15 +73,27 @@ export async function PUT(request: Request) {
       }
     }
 
-    const settings = await prisma.userSettings.update({
-      where: { userId: session.userId },
-      data: {
-        ...(charsPerPage !== undefined && { charsPerPage }),
-        ...(targetedPracticeRatio !== undefined && { targetedPracticeRatio }),
-        ...(bigramWindowSize !== undefined && { bigramWindowSize }),
-        ...(mode !== undefined && { mode }),
-        ...(activeListId !== undefined && { activeListId }),
-      },
+    if (keymapListId) {
+      if (projectKeymapListIds.has(keymapListId)) {
+        return NextResponse.json(
+          { error: "Project .txt keymap lists are session-only. Import them into a custom list to save them." },
+          { status: 400 }
+        );
+      }
+
+      const list = await findKeymapListById(session.userId, keymapListId);
+      if (!list) {
+        return NextResponse.json({ error: "Keymap list not found" }, { status: 404 });
+      }
+    }
+
+    const settings = await updateUserSettings(session.userId, {
+      ...(charsPerPage !== undefined && { charsPerPage }),
+      ...(targetedPracticeRatio !== undefined && { targetedPracticeRatio }),
+      ...(bigramWindowSize !== undefined && { bigramWindowSize }),
+      ...(mode !== undefined && { mode }),
+      ...(activeListId !== undefined && { activeListId }),
+      ...(keymapListId !== undefined && { keymapListId }),
     });
 
     return NextResponse.json(settings);

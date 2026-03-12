@@ -1,0 +1,3 @@
+open command palette => Ctrl+Shift+p
+save file => Ctrl+s
+toggle terminal => Ctrl+`

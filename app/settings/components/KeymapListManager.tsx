@@ -4,26 +4,31 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
-import { parseWordListText, serializeWordListText } from "@/lib/wordlists/text";
+import { parseKeymapExercisesText, serializeKeymapExercises } from "@/lib/keymaps/text";
 
-interface WordListItem {
+interface KeymapExerciseItem {
+  prompt: string;
+  acceptedInputs: string[];
+}
+
+interface KeymapListItem {
   id: string;
   name: string;
-  words: string[];
-  wordCount: number;
+  exercises: KeymapExerciseItem[];
+  exerciseCount: number;
   createdAt: string;
 }
 
-interface WordListManagerProps {
-  wordLists: WordListItem[];
+interface KeymapListManagerProps {
+  keymapLists: KeymapListItem[];
   defaultList: {
     name: string;
-    words: string[];
+    exercises: KeymapExerciseItem[];
   };
-  projectWordLists: {
+  projectKeymapLists: {
     id: string;
     name: string;
-    words: string[];
+    exercises: KeymapExerciseItem[];
     sourceFile: string;
   }[];
 }
@@ -32,24 +37,24 @@ function pluralize(count: number, singular: string, plural: string) {
   return count === 1 ? singular : plural;
 }
 
-export default function WordListManager({
-  wordLists: initialLists,
+export default function KeymapListManager({
+  keymapLists: initialLists,
   defaultList,
-  projectWordLists,
-}: WordListManagerProps) {
+  projectKeymapLists,
+}: KeymapListManagerProps) {
   const router = useRouter();
-  const [wordLists, setWordLists] = useState(initialLists);
+  const [keymapLists, setKeymapLists] = useState(initialLists);
   const [isFormVisible, setIsFormVisible] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [wordsText, setWordsText] = useState("");
+  const [exercisesText, setExercisesText] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const resetForm = () => {
     setEditingId(null);
     setName("");
-    setWordsText("");
+    setExercisesText("");
     setError("");
     setIsFormVisible(false);
   };
@@ -57,26 +62,26 @@ export default function WordListManager({
   const openCreate = () => {
     setEditingId(null);
     setName("");
-    setWordsText("");
+    setExercisesText("");
     setError("");
     setIsFormVisible(true);
   };
 
-  const openEdit = (list: WordListItem) => {
+  const openEdit = (list: KeymapListItem) => {
     setEditingId(list.id);
     setName(list.name);
-    setWordsText(serializeWordListText(list.words));
+    setExercisesText(serializeKeymapExercises(list.exercises));
     setError("");
     setIsFormVisible(true);
   };
 
   const openFromProjectList = (list: {
     name: string;
-    words: string[];
+    exercises: KeymapExerciseItem[];
   }) => {
     setEditingId(null);
     setName(list.name);
-    setWordsText(serializeWordListText(list.words));
+    setExercisesText(serializeKeymapExercises(list.exercises));
     setError("");
     setIsFormVisible(true);
   };
@@ -85,26 +90,28 @@ export default function WordListManager({
     setError("");
     setSaving(true);
 
-    const words = parseWordListText(wordsText);
-    if (words.length === 0) {
-      setError("Please enter at least one word");
+    let exercises: KeymapExerciseItem[];
+    try {
+      exercises = parseKeymapExercisesText(exercisesText);
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : "Invalid keymap exercise format");
       setSaving(false);
       return;
     }
 
-    const endpoint = editingId ? `/api/wordlists/${editingId}` : "/api/wordlists";
+    const endpoint = editingId ? `/api/keymap-lists/${editingId}` : "/api/keymap-lists";
     const method = editingId ? "PUT" : "POST";
 
     try {
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, words }),
+        body: JSON.stringify({ name, exercises }),
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: "Failed to save word list" }));
-        setError(data.error || "Failed to save word list");
+        const data = await res.json().catch(() => ({ error: "Failed to save keymap list" }));
+        setError(data.error || "Failed to save keymap list");
         return;
       }
 
@@ -112,12 +119,12 @@ export default function WordListManager({
       const normalized = {
         id: savedList.id,
         name: savedList.name,
-        words: savedList.words,
-        wordCount: savedList.words.length,
+        exercises: savedList.entries,
+        exerciseCount: savedList.entries.length,
         createdAt: savedList.createdAt,
       };
 
-      setWordLists((current) => {
+      setKeymapLists((current) => {
         if (!editingId) {
           return [normalized, ...current];
         }
@@ -135,9 +142,9 @@ export default function WordListManager({
 
   const handleDelete = async (id: string) => {
     try {
-      const res = await fetch(`/api/wordlists/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/keymap-lists/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setWordLists((current) => current.filter((list) => list.id !== id));
+        setKeymapLists((current) => current.filter((list) => list.id !== id));
         if (editingId === id) {
           resetForm();
         }
@@ -152,8 +159,8 @@ export default function WordListManager({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold">Typing Word Lists</h3>
-          <p className="text-sm text-zinc-500">Create and edit custom text practice vocabularies.</p>
+          <h3 className="text-lg font-semibold">Keymap Lists</h3>
+          <p className="text-sm text-zinc-500">Manage custom keymap drills with prompts and accepted commands.</p>
         </div>
         <Button
           variant="secondary"
@@ -169,33 +176,33 @@ export default function WordListManager({
           <div>
             <p className="text-sm font-medium">{defaultList.name}</p>
             <p className="text-xs text-zinc-500">
-              Built-in list · {defaultList.words.length}{" "}
-              {pluralize(defaultList.words.length, "word", "words")} · read-only
+              Built-in list · {defaultList.exercises.length}{" "}
+              {pluralize(defaultList.exercises.length, "exercise", "exercises")} · read-only
             </p>
           </div>
-          <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">View words</span>
+          <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">View drills</span>
         </summary>
         <div className="mt-3 border-t border-zinc-800 pt-3">
           <textarea
             readOnly
-            value={serializeWordListText(defaultList.words)}
-            rows={10}
+            value={serializeKeymapExercises(defaultList.exercises)}
+            rows={8}
             spellCheck={false}
-            aria-label={`${defaultList.name} words`}
+            aria-label={`${defaultList.name} exercises`}
             className="w-full rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-300 focus:outline-none"
           />
         </div>
       </details>
 
-      {projectWordLists.length > 0 && (
+      {projectKeymapLists.length > 0 && (
         <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/20 p-3">
           <div>
-            <p className="text-sm font-medium text-zinc-100">Project .txt word lists</p>
+            <p className="text-sm font-medium text-zinc-100">Project .txt keymap lists</p>
             <p className="text-xs text-zinc-500">
-              Drop comma- or newline-separated `.txt` files into `wordlists/`, then load them into the editor and save as custom lists.
+              Drop <code>prompt =&gt; command1, command2</code> files into <code>keymap-lists/</code>, then load them into the editor and save as custom lists.
             </p>
           </div>
-          {projectWordLists.map((list) => (
+          {projectKeymapLists.map((list) => (
             <div
               key={list.id}
               className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/50 p-3"
@@ -203,7 +210,7 @@ export default function WordListManager({
               <div>
                 <p className="text-sm font-medium">{list.name}</p>
                 <p className="text-xs text-zinc-500">
-                  {list.words.length} {pluralize(list.words.length, "word", "words")} · {list.sourceFile}
+                  {list.exercises.length} {pluralize(list.exercises.length, "exercise", "exercises")} · {list.sourceFile}
                 </p>
               </div>
               <Button variant="secondary" size="sm" onClick={() => openFromProjectList(list)}>
@@ -220,19 +227,22 @@ export default function WordListManager({
             label="List name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Programming Terms"
+            placeholder="e.g. Vim Motions"
           />
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-300">
-              Words (comma-, newline-, or space-separated)
+              Exercises (one per line: `prompt {"=>"} command1, command2`)
             </label>
             <textarea
-              value={wordsText}
-              onChange={(e) => setWordsText(e.target.value)}
-              rows={8}
+              value={exercisesText}
+              onChange={(e) => setExercisesText(e.target.value)}
+              rows={10}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              placeholder="function, variable, return, const"
+              placeholder={"change inside word => ciw\nopen command palette => Ctrl+Shift+p\nsplit editor => Super+Alt+d"}
             />
+            <p className="mt-2 text-xs text-zinc-500">
+              Modifiers supported: `Ctrl`, `Alt`, `Shift`, `Super`. Examples: `Ctrl+k`, `Alt+Shift+p`, `Super+Enter`.
+            </p>
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex items-center gap-3">
@@ -246,20 +256,20 @@ export default function WordListManager({
         </div>
       )}
 
-      {wordLists.length === 0 ? (
+      {keymapLists.length === 0 ? (
         <p className="text-sm text-zinc-500">
-          No custom typing lists yet. Create one to practice domain-specific vocabulary.
+          No custom keymap lists yet. Create one to drill your own prompt and command sets.
         </p>
       ) : (
         <div className="space-y-2">
-          {wordLists.map((list) => (
+          {keymapLists.map((list) => (
             <div
               key={list.id}
               className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/30 p-3"
             >
               <div>
                 <p className="text-sm font-medium">{list.name}</p>
-                <p className="text-xs text-zinc-500">{list.wordCount} words</p>
+                <p className="text-xs text-zinc-500">{list.exerciseCount} exercises</p>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="secondary" size="sm" onClick={() => openEdit(list)}>

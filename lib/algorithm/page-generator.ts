@@ -5,6 +5,7 @@ interface GeneratePageOptions {
   weakBigrams: WeakBigram[];
   charsPerPage: number;
   targetedPracticeRatio?: number;
+  separator?: "space" | "comma";
 }
 
 /**
@@ -15,13 +16,20 @@ interface GeneratePageOptions {
  * - Cold start (no weak bigrams): 100% random words
  */
 export function generatePage(options: GeneratePageOptions): string {
-  const { words, weakBigrams, charsPerPage, targetedPracticeRatio = 60 } = options;
+  const {
+    words,
+    weakBigrams,
+    charsPerPage,
+    targetedPracticeRatio = 60,
+    separator = "space",
+  } = options;
+  const separatorLength = separator === "comma" ? 2 : 1;
 
   if (words.length === 0) return "";
 
   // Cold start: no weak bigrams, use random words
   if (weakBigrams.length === 0) {
-    return selectRandomWords(words, charsPerPage).join(" ");
+    return joinWords(selectRandomWords(words, charsPerPage, separatorLength), separator);
   }
 
   const scored = scoreAndSortWords(words, weakBigrams);
@@ -31,22 +39,24 @@ export function generatePage(options: GeneratePageOptions): string {
   // Select targeted words (highest scores first)
   const targetedWords = selectFromScored(
     scored.filter((s) => s.score > 0),
-    targetedChars
+    targetedChars,
+    separatorLength
   );
 
   // Select variety words randomly
-  const varietyWords = selectRandomWords(words, varietyChars);
+  const varietyWords = selectRandomWords(words, varietyChars, separatorLength);
 
   // Combine and shuffle
   const allWords = [...targetedWords, ...varietyWords];
   shuffleArray(allWords);
 
-  return allWords.join(" ");
+  return joinWords(allWords, separator);
 }
 
 function selectFromScored(
   scored: { word: string; score: number }[],
-  targetChars: number
+  targetChars: number,
+  separatorLength: number
 ): string[] {
   const selected: string[] = [];
   let currentChars = 0;
@@ -68,13 +78,13 @@ function selectFromScored(
     }
 
     selected.push(picked.word);
-    currentChars += picked.word.length + 1; // +1 for space
+    currentChars += picked.word.length + separatorLength;
   }
 
   return selected;
 }
 
-function selectRandomWords(words: string[], targetChars: number): string[] {
+function selectRandomWords(words: string[], targetChars: number, separatorLength: number): string[] {
   const selected: string[] = [];
   let currentChars = 0;
 
@@ -83,10 +93,14 @@ function selectRandomWords(words: string[], targetChars: number): string[] {
   while (currentChars < targetChars) {
     const word = words[Math.floor(Math.random() * words.length)];
     selected.push(word);
-    currentChars += word.length + 1;
+    currentChars += word.length + separatorLength;
   }
 
   return selected;
+}
+
+function joinWords(words: string[], separator: "space" | "comma"): string {
+  return words.join(separator === "comma" ? ", " : " ");
 }
 
 function shuffleArray<T>(array: T[]): void {
